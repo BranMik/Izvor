@@ -326,6 +326,99 @@ async def test_circuit_breaker_resume_sequence_stage2_and_stage4_checkpoints(tmp
             mock_cont.assert_awaited_once()
             updated4 = turn_checkpoint_store.get_checkpoint("chk_cb_stage4")
             assert updated4 is not None and updated4.status == "RESUMED"
+
+        # Case C (CB-05): Competing HITL checkpoint blocks CB resume, while stop_requested=1 is cleared when no HITL blocks
+        dispatched_coros.clear()
+        ch_lock = "C_CB_LOCK"
+        ts_lock = "1700000300.0001"
+        thread_state_manager.clear_state(ch_lock, ts_lock)
+        turn_checkpoint_store.save_checkpoint(
+            TurnCheckpoint(
+                checkpoint_id="chk_cb_bg",
+                session_id=f"{ch_lock}:{ts_lock}",
+                channel_id=ch_lock,
+                thread_ts=ts_lock,
+                agent_key="agent-10001",
+                pause_reason="circuit_breaker",
+                prompt="Suspended on CB",
+                messages=[],
+            )
+        )
+        turn_checkpoint_store.save_checkpoint(
+            TurnCheckpoint(
+                checkpoint_id="chk_hitl_block",
+                session_id=f"{ch_lock}:{ts_lock}",
+                channel_id=ch_lock,
+                thread_ts=ts_lock,
+                agent_key="agent-10002",
+                pause_reason="hitl",
+                hitl_request_id="req_block",
+                messages=[{"role": "user", "content": "Approve first"}],
+            )
+        )
+        with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True):
+            resp_blocked = client.post(
+                "/slack/actions",
+                json={
+                    "type": "block_actions",
+                    "user": {"id": "U_CB_ADMIN"},
+                    "actions": [{"action_id": "resume_sequence_action"}],
+                    "channel": {"id": ch_lock},
+                    "container": {"thread_ts": ts_lock},
+                    "message": {"ts": "1700000300.0002"},
+                },
+            )
+            assert resp_blocked.status_code == 200
+            assert len(dispatched_coros) == 0
+
+        # Resolve competing HITL, set stop_requested=1, then verify CB resume clears stop_requested and only consumes circuit_breaker
+        turn_checkpoint_store.mark_resolved("chk_hitl_block")
+        thread_state_manager.discussion.request_stop(ch_lock, ts_lock)
+        assert thread_state_manager.is_stopped(ch_lock, ts_lock) is True
+        with (
+            patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+            patch("orchestration.agent_router.orchestrate_discussion", side_effect=_fake_orchestrate),
+        ):
+            resp_clear = client.post(
+                "/slack/actions",
+                json={
+                    "type": "block_actions",
+                    "user": {"id": "U_CB_ADMIN"},
+                    "actions": [{"action_id": "resume_sequence_action"}],
+                    "channel": {"id": ch_lock},
+                    "container": {"thread_ts": ts_lock},
+                    "message": {"ts": "1700000300.0003"},
+                },
+            )
+            assert resp_clear.status_code == 200
+            assert thread_state_manager.is_stopped(ch_lock, ts_lock) is False
+            assert len(dispatched_coros) == 1
+            await dispatched_coros[0][2]
+
+        # Case D (CB-05): fetch_thread_history excludes budget-halt banners posted under agent username
+        from core.config import configure_token, reset_token
+        from services.slack.client_core import configure_slack_async_client, reset_slack_async_client
+        from services.slack.messages import fetch_thread_history
+
+        mock_replies = AsyncMock(
+            return_value={
+                "messages": [
+                    {"text": "Architect perspective", "username": "Architect"},
+                    {"text": "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS", "username": "Architect"},
+                    {"text": "DAILY WORKSPACE BUDGET EXCEEDED.", "username": "Tactician"},
+                ],
+                "has_more": False,
+            }
+        )
+        configure_token("xoxb-real-token")
+        configure_slack_async_client(MagicMock(conversations_replies=mock_replies))
+        try:
+            hist = await fetch_thread_history("C_HIST", "1700.1")
+            assert len(hist) == 1
+            assert "Architect perspective" in hist[0]["content"]
+        finally:
+            reset_slack_async_client()
+            reset_token()
     finally:
         thread_state_manager.reset_task_dispatcher()
         set_admin_slack_user_ids_override(None)

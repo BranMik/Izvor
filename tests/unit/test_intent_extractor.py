@@ -397,7 +397,13 @@ async def test_extract_intent_coerces_and_clamps_string_numeric_modifiers():
             message=MagicMock(
                 content=json.dumps(
                     {
-                        "modifiers": {"max_words": "10", "min_words": "5", "history": "3", "custom_style": "brief"},
+                        "modifiers": {
+                            "max_words": "10",
+                            "min_words": "5",
+                            "history": "3",
+                            "custom_style": "brief",
+                            "language": "Croatian<script>",
+                        },
                         "actions": [],
                     }
                 )
@@ -412,7 +418,8 @@ async def test_extract_intent_coerces_and_clamps_string_numeric_modifiers():
     assert intent.modifiers["max_words"] == 10 and isinstance(intent.modifiers["max_words"], int)
     assert intent.modifiers["min_words"] == 5
     assert intent.modifiers["history"] == 3
-    assert intent.modifiers["custom_style"] == "brief"
+    assert "custom_style" not in intent.modifiers
+    assert intent.modifiers["language"] == "Croatianscript"
 
     mock_resp2 = MagicMock()
     mock_resp2.choices = [

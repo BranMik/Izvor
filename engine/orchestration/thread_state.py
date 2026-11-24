@@ -359,6 +359,7 @@ class ThreadStateManager:
         from core.task_utils import safe_create_task
 
         self._touch(channel_id, thread_ts)
+        self.discussion.cancel_active_task(channel_id, thread_ts)
         task = safe_create_task(coro, name=f"discussion:{channel_id}:{thread_ts}")
         self.discussion.set_active_task(channel_id, thread_ts, task)
 
@@ -453,8 +454,33 @@ class ThreadStateManager:
         self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
 
     # --- Cross-Store Coordination & Lifecycle ---
+    def _invalidate_thread_pauses(self, channel_id: str, thread_ts: str) -> None:
+        """Abandons open turn checkpoints and expires pending HITL requests for the thread."""
+        try:
+            from services.hitl import expire_thread_requests
+            from services.turn_checkpoint_store import turn_checkpoint_store
+
+            turn_checkpoint_store.abandon_thread_checkpoints(channel_id, thread_ts)
+            expire_thread_requests(channel_id, thread_ts)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[THREAD STATE] Failed invalidating thread pauses for {(channel_id, thread_ts)}: {e}")
+
     def is_discussion_active(self, channel_id: str, thread_ts: str) -> bool:
-        return self.discussion.is_active(channel_id, thread_ts) or self.retry.has_pending_retries(channel_id, thread_ts)
+        if self.discussion.is_active(channel_id, thread_ts) or self.retry.has_pending_retries(
+            channel_id, thread_ts
+        ):
+            return True
+        try:
+            from services.hitl import has_pending_request_for_thread
+            from services.turn_checkpoint_store import turn_checkpoint_store
+
+            if turn_checkpoint_store.has_active_checkpoint(channel_id, thread_ts):
+                return True
+            if has_pending_request_for_thread(channel_id, thread_ts):
+                return True
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[THREAD STATE] Pause-state check failed for {(channel_id, thread_ts)}: {e}")
+        return False
 
     def suspend_thread(self, channel_id: str, thread_ts: str) -> None:
         """Suspends thread execution (e.g., for circuit breakers), keeping context intact for resumption."""
@@ -463,56 +489,71 @@ class ThreadStateManager:
         logger.info(f"[THREAD STATE] Thread {(channel_id, thread_ts)} suspended. Routing queue preserved.")
 
     def interrupt_discussion(self, channel_id: str, thread_ts: str) -> None:
+        from core.database import get_db_transaction
+
         self._touch(channel_id, thread_ts)
-        new_gen = self.retry.increment_generation(channel_id, thread_ts)
-        logger.info(f"[THREAD STATE] Interrupting discussion for thread {(channel_id, thread_ts)}. New generation: {new_gen}")
-        self.discussion.cancel_active_task(channel_id, thread_ts)
-        self.discussion._update_fields(
-            channel_id,
-            thread_ts,
-            remaining_agents=None,
-            custom_flow=0,
-            open_debate=0,
-            stop_requested=0,
-            rounds=0,
-            workflow_snapshot=None,
-            is_pure_skill_task=0,
-            consensus_reached=0,
-            convergence_speakers="[]",
-        )
-        self.context._update_fields(
-            channel_id,
-            thread_ts,
-            history_limit_config=None,
-            file_context=None,
-        )
-        self.retry.clear_retry_queue(channel_id, thread_ts)
-        self.retry.clear_already_retried(channel_id, thread_ts)
-        self.retry.clear_503_errored_agents(channel_id, thread_ts)
-        self.evidence.clear_thread_evidence(channel_id, thread_ts)
+        with get_db_transaction(immediate=True):
+            new_gen = self.retry.increment_generation(channel_id, thread_ts)
+            logger.info(
+                f"[THREAD STATE] Interrupting discussion for thread {(channel_id, thread_ts)}. New generation: {new_gen}"
+            )
+            self.discussion.cancel_active_task(channel_id, thread_ts)
+            self._invalidate_thread_pauses(channel_id, thread_ts)
+            self.discussion._update_fields(
+                channel_id,
+                thread_ts,
+                remaining_agents=None,
+                custom_flow=0,
+                open_debate=0,
+                stop_requested=0,
+                rounds=0,
+                workflow_snapshot=None,
+                is_pure_skill_task=0,
+                consensus_reached=0,
+                convergence_speakers="[]",
+            )
+            self.context._update_fields(
+                channel_id,
+                thread_ts,
+                history_limit_config=None,
+                file_context=None,
+            )
+            self.retry.clear_retry_queue(channel_id, thread_ts)
+            self.retry.clear_already_retried(channel_id, thread_ts)
+            self.retry.clear_503_errored_agents(channel_id, thread_ts)
+            self.evidence.clear_thread_evidence(channel_id, thread_ts)
 
     def request_stop(self, channel_id: str, thread_ts: str) -> None:
+        from core.database import get_db_transaction
+
         self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
-        self.discussion.cancel_active_task(channel_id, thread_ts)
-        self.discussion._update_fields(
-            channel_id,
-            thread_ts,
-            stop_requested=1,
-            remaining_agents=None,
-            custom_flow=0,
-            open_debate=0,
-            rounds=0,
-            workflow_snapshot=None,
-            is_pure_skill_task=0,
-            consensus_reached=0,
-            convergence_speakers="[]",
-        )
-        self.context._update_fields(channel_id, thread_ts, history_limit_config=None)
-        self.retry.clear_retry_queue(channel_id, thread_ts)
-        self.retry.clear_already_retried(channel_id, thread_ts)
-        self.retry.clear_503_errored_agents(channel_id, thread_ts)
-        self.evidence.clear_thread_evidence(channel_id, thread_ts)
+        with get_db_transaction(immediate=True):
+            self.discussion.cancel_active_task(channel_id, thread_ts)
+            self._invalidate_thread_pauses(channel_id, thread_ts)
+            self.discussion._update_fields(
+                channel_id,
+                thread_ts,
+                stop_requested=1,
+                remaining_agents=None,
+                custom_flow=0,
+                open_debate=0,
+                rounds=0,
+                workflow_snapshot=None,
+                is_pure_skill_task=0,
+                consensus_reached=0,
+                convergence_speakers="[]",
+            )
+            self.context._update_fields(
+                channel_id,
+                thread_ts,
+                history_limit_config=None,
+                file_context=None,
+            )
+            self.retry.clear_retry_queue(channel_id, thread_ts)
+            self.retry.clear_already_retried(channel_id, thread_ts)
+            self.retry.clear_503_errored_agents(channel_id, thread_ts)
+            self.evidence.clear_thread_evidence(channel_id, thread_ts)
         logger.info(f"[THREAD STATE] Stop requested for thread {thread_key}. Queues and limits cleared.")
         try:
             from agents import trigger_thread_notes_update, trigger_usage_update
@@ -543,6 +584,7 @@ class ThreadStateManager:
         cleanup_thread(), and reset_all().
         """
         self._touch(channel_id, thread_ts)
+        self._invalidate_thread_pauses(channel_id, thread_ts)
         self.discussion._update_fields(
             channel_id,
             thread_ts,
@@ -564,8 +606,14 @@ class ThreadStateManager:
         # excluded_agents, included_agents, format_modifiers, round_sequences, initial_prompts)
         # remains intact for subsequent rounds, as does verified round evidence.
 
-    def cleanup_thread(self, channel_id: str, thread_ts: str) -> None:
-        self.discussion.clear_thread(channel_id, thread_ts)
+    def cleanup_thread(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        *,
+        skip_task: asyncio.Task[Any] | None = None,
+    ) -> None:
+        self.discussion.clear_thread(channel_id, thread_ts, skip_task=skip_task)
         self.retry.clear_thread(channel_id, thread_ts)
         self.context.clear_thread(channel_id, thread_ts)
         self.evidence.clear_thread_evidence(channel_id, thread_ts)

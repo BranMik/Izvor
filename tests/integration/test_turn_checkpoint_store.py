@@ -26,15 +26,17 @@ def test_turn_checkpoint_save_and_retrieve(checkpoint_store):
         pending_tool_call={"id": "call_1", "function": {"name": "restricted_tool", "arguments": "{}"}},
         active_tools=[{"type": "function", "function": {"name": "restricted_tool"}}],
         skills_used=["admin_tool"],
-        token_mapping={"prompt": 120, "completion": 30},
+        token_mapping={"<PERSON_0>": "Alice Smith"},
         accumulated_history=[{"speaker": "User", "text": "Execute"}],
         prompt_tokens=120,
         completion_tokens=30,
         hitl_request_id="hitl_req_999",
+        my_generation=3,
     )
 
     saved_id = checkpoint_store.save_checkpoint(chk)
     assert saved_id == "chk_test_123"
+    assert checkpoint_store.has_active_checkpoint("C_TEST", "1700000001.000100") is True
 
     loaded = checkpoint_store.get_checkpoint("chk_test_123")
     assert loaded is not None
@@ -42,6 +44,8 @@ def test_turn_checkpoint_save_and_retrieve(checkpoint_store):
     assert loaded.agent_key == "agent-10002"
     assert loaded.pause_reason == "hitl"
     assert loaded.hitl_request_id == "hitl_req_999"
+    assert loaded.token_mapping == {"<PERSON_0>": "Alice Smith"}
+    assert loaded.my_generation == 3
     assert len(loaded.messages) == 1
     assert loaded.pending_tool_call["id"] == "call_1"
     assert loaded.prompt_tokens == 120
@@ -159,3 +163,25 @@ def test_turn_checkpoint_claim_for_resume_atomic_and_prompt_redaction(checkpoint
     assert checkpoint_store.mark_failed_resume("chk_claim_fail") is True
     abandoned = checkpoint_store.get_checkpoint("chk_claim_fail")
     assert abandoned is not None and abandoned.status == "ABANDONED" and abandoned.prompt == ""
+
+    # release_claim restores RESUMING -> ACTIVE without redacting payload; abandon_thread_checkpoints bulk-abandons
+    rel = TurnCheckpoint(
+        checkpoint_id="chk_rel_01",
+        session_id="C_REL:1700000010.0001",
+        channel_id="C_REL",
+        thread_ts="1700000010.0001",
+        agent_key="agent-10002",
+        pause_reason="hitl",
+        prompt="Keep me during release",
+        my_generation=2,
+        expires_at=time.time() + 500.0,
+    )
+    checkpoint_store.save_checkpoint(rel)
+    assert checkpoint_store.claim_for_resume("chk_rel_01") is True
+    assert checkpoint_store.release_claim("chk_rel_01") is True
+    re_loaded = checkpoint_store.get_checkpoint("chk_rel_01")
+    assert re_loaded is not None and re_loaded.status == "ACTIVE" and re_loaded.prompt == "Keep me during release"
+    assert checkpoint_store.has_active_checkpoint("C_REL", "1700000010.0001") is True
+    abandoned_count = checkpoint_store.abandon_thread_checkpoints("C_REL", "1700000010.0001")
+    assert abandoned_count >= 1
+    assert checkpoint_store.has_active_checkpoint("C_REL", "1700000010.0001") is False

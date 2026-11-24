@@ -72,6 +72,45 @@ def _prune_expired() -> None:
         logger.debug(f"[HITL] Prune expired SQLite failed: {e}")
 
 
+def has_pending_request_for_thread(channel_id: str, thread_ts: str) -> bool:
+    """Returns True if any unexpired PENDING HITL approval exists for the thread."""
+    _prune_expired()
+    now = time.time()
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM hitl_approvals
+                WHERE channel_id = ? AND thread_ts = ? AND status = 'PENDING' AND expires_at > ?
+                LIMIT 1;
+                """,
+                (channel_id, thread_ts, now),
+            ).fetchone()
+            return row is not None
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"[HITL] SQLite has_pending_request_for_thread failed: {e}")
+        return False
+
+
+def expire_thread_requests(channel_id: str, thread_ts: str) -> int:
+    """Immediately invalidates all PENDING HITL approval requests for a thread."""
+    now = time.time()
+    try:
+        with get_db_transaction(immediate=True) as conn:
+            cur = conn.execute(
+                """
+                UPDATE hitl_approvals
+                SET status = 'DENIED', expires_at = ?
+                WHERE channel_id = ? AND thread_ts = ? AND status = 'PENDING';
+                """,
+                (now - 1.0, channel_id, thread_ts),
+            )
+            return cur.rowcount
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"[HITL] SQLite expire_thread_requests failed: {e}")
+        return 0
+
+
 def get_pending_request(request_id: str) -> PendingHITLRequest | None:
     _prune_expired()
     now = time.time()

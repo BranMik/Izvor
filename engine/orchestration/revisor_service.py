@@ -538,7 +538,9 @@ async def run_internal_revisor(ctx: TurnContext):
             raw_results = await asyncio.gather(*tasks, return_exceptions=True)
             results = []
             for r in raw_results:
-                if isinstance(r, Exception):
+                if isinstance(r, asyncio.CancelledError):
+                    raise r
+                if isinstance(r, BaseException):
                     logger.warning(f"[REVISOR] Candidate verification raised exception: {r}")
                 else:
                     results.append(r)

@@ -357,13 +357,14 @@ def build_conclusion_note_blocks(
 
 def evict_thread_note_cache(channel_id: str, thread_ts: str) -> None:
     """Removes in-memory runtime locks and cancels pending tasks without touching SQLite SSOT."""
+    from core.task_utils import safe_cancel_task
+
     thread_key = (channel_id, thread_ts)
     THREAD_LOCKS.pop(thread_key, None)
     _PENDING_UPDATES.pop(thread_key, None)
     _PENDING_COMPLETED.pop(thread_key, None)
     task = _RUNNING_TASKS.pop(thread_key, None)
-    if task and not task.done():
-        task.cancel()
+    safe_cancel_task(task)
 
 
 def clear_thread_note(channel_id: str, thread_ts: str) -> None:

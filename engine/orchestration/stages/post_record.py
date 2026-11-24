@@ -184,7 +184,11 @@ class PostRecordStage:
 
     def finalize_completed_round(self, ctx: TurnContext) -> None:
         """Clears ephemeral round execution state after post-record and the InternalRevisor barrier complete."""
-        if ctx.output.is_completed and not ctx.input.isolated_branch:
+        if (
+            ctx.output.is_completed
+            and not ctx.input.isolated_branch
+            and not getattr(ctx.input, "defer_round_decrement", False)
+        ):
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} reached termination (forced or natural). Cleaning up state."
             )
@@ -198,7 +202,19 @@ class PostRecordStage:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded before pacing delay. Aborting."
             )
+            if ctx.intermediate_msg_ts:
+                try:
+                    await self.workspace_adapter.update_agent_turn(
+                        channel_id=ctx.input.channel_id,
+                        message_ts=ctx.intermediate_msg_ts,
+                        text="_⏹️ Superseded by a newer message._",
+                    )
+                except Exception as upd_err:  # noqa: BLE001
+                    logger.debug(f"[WORKSPACE] Failed cleaning intermediate message on supersession: {upd_err}")
             return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+        if getattr(ctx.input, "force_termination_override", False):
+            ctx.force_termination = True
 
         if thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts):
             ctx.force_termination = True
@@ -213,6 +229,7 @@ class PostRecordStage:
         # Check if more discussion rounds remain when active round ends
         if (
             not ctx.input.isolated_branch
+            and not getattr(ctx.input, "defer_round_decrement", False)
             and not ctx.remaining
             and not retries
             and not ctx.force_termination
@@ -391,6 +408,15 @@ class PostRecordStage:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded after pacing delay. Aborting post."
             )
+            if ctx.intermediate_msg_ts:
+                try:
+                    await self.workspace_adapter.update_agent_turn(
+                        channel_id=ctx.input.channel_id,
+                        message_ts=ctx.intermediate_msg_ts,
+                        text="_⏹️ Superseded by a newer message._",
+                    )
+                except Exception as upd_err:  # noqa: BLE001
+                    logger.debug(f"[WORKSPACE] Failed cleaning intermediate message on supersession: {upd_err}")
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         resolved_turn_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
@@ -446,6 +472,10 @@ class PostRecordStage:
             slack_res = await self.workspace_adapter.post_agent_turn(**post_kwargs)
             posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
         ctx.output.slack_res = slack_res
+        if isinstance(slack_res, dict) and slack_res.get("dlp_blocked"):
+            ctx.output.final_text = str(
+                slack_res.get("delivered_text") or "⚠️ *Message blocked by security policy.*"
+            )
         logger.info(f"[WORKSPACE] Successfully posted message! Received ts: {posted_ts}")
 
         pause_secs = getattr(self.deps, "slack_post_pause_seconds", None)
@@ -518,6 +548,8 @@ class PostRecordStage:
             slack_res["halted"] = getattr(ctx.output, "halted", False)
             slack_res["waiting_hitl"] = getattr(ctx.output, "waiting_hitl", False)
             slack_res["circuit_breaker_triggered"] = cb_tripped
+            if getattr(ctx.output, "checkpoint_id", None):
+                slack_res["checkpoint_id"] = ctx.output.checkpoint_id
             slack_res["final_text"] = ctx.output.final_text
             resolved_user = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
             slack_res["username"] = resolved_user
@@ -558,6 +590,12 @@ class PostRecordStage:
         already_503 = thread_state_manager.has_agent_503_errored(
             ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
         )
+        if not ctx.remaining and not ctx.input.isolated_branch:
+            db_remaining = thread_state_manager.get_remaining_agents(
+                ctx.input.channel_id, ctx.input.thread_ts
+            )
+            if db_remaining:
+                ctx.remaining = [a for a in db_remaining if a != ctx.agent_key]
 
         is_first_503_skip = False
         mode = None
@@ -669,13 +707,25 @@ class PostRecordStage:
             f"[SLACK] Posting gracious error message to channel {ctx.input.channel_id}, thread_ts {ctx.input.thread_ts} as {ctx.agent_cfg.get('username', ctx.agent_key)}"
         )
         post_resp_fn = getattr(self.deps, "slack_poster", None) or post_agent_response
-        slack_res = await post_resp_fn(
-            channel_id=ctx.input.channel_id,
-            thread_ts=ctx.input.thread_ts,
-            text=error_post_text,
-            username=ctx.agent_cfg.get("username", ctx.agent_key),
-            icon_url=ctx.agent_cfg.get("icon_url"),
-        )
+        slack_res: Any = None
+        if ctx.intermediate_msg_ts:
+            try:
+                slack_res = await self.workspace_adapter.update_agent_turn(
+                    channel_id=ctx.input.channel_id,
+                    message_ts=ctx.intermediate_msg_ts,
+                    text=error_post_text,
+                )
+            except Exception as upd_err:  # noqa: BLE001
+                logger.debug(f"[WORKSPACE] Error replacing intermediate status message: {upd_err}")
+                slack_res = None
+        if not isinstance(slack_res, dict) or not slack_res.get("ok"):
+            slack_res = await post_resp_fn(
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
+                text=error_post_text,
+                username=ctx.agent_cfg.get("username", ctx.agent_key),
+                icon_url=ctx.agent_cfg.get("icon_url"),
+            )
 
         pause_secs = getattr(self.deps, "slack_post_pause_seconds", None)
         if pause_secs is None:

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 MAX_TRACE_BUFFER_SIZE = 10_000
 _TRACE_BUFFER: collections.deque[tuple[Any, ...]] = collections.deque(maxlen=MAX_TRACE_BUFFER_SIZE)
 _TRACE_BUFFER_LOCK = threading.Lock()
+_INFLIGHT_FLUSH_FUTURES: set[asyncio.Future[Any]] = set()
 
 
 def flush_turn_traces() -> int:
@@ -92,12 +93,28 @@ def record_turn_trace(
 
     try:
         loop = asyncio.get_running_loop()
-        loop.run_in_executor(None, flush_turn_traces)
+        fut = loop.run_in_executor(None, flush_turn_traces)
+        _INFLIGHT_FLUSH_FUTURES.add(fut)
+        fut.add_done_callback(lambda f: _INFLIGHT_FLUSH_FUTURES.discard(f))
     except RuntimeError:
         # No running event loop (synchronous context / test), flush immediately
         flush_turn_traces()
 
     return trace_id
+
+
+async def drain_turn_traces(timeout: float = 2.0) -> None:
+    """Awaits any pending trace flush futures and synchronously flushes remaining buffered traces."""
+    pending = [f for f in list(_INFLIGHT_FLUSH_FUTURES) if not f.done()]
+    if pending:
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*pending, return_exceptions=True),
+                timeout=timeout,
+            )
+        except TimeoutError:
+            logger.warning("[TELEMETRY] Timed out draining %d in-flight trace flush future(s).", len(pending))
+    flush_turn_traces()
 
 
 def clear_turn_traces(session_id: str | None = None) -> None:

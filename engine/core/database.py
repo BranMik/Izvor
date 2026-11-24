@@ -163,6 +163,7 @@ BASELINE_SCHEMA_STATEMENTS = [
         completion_tokens INTEGER DEFAULT 0,
         status TEXT NOT NULL,
         prompt TEXT NOT NULL DEFAULT '',
+        my_generation INTEGER DEFAULT NULL,
         created_at REAL NOT NULL,
         expires_at REAL NOT NULL
     );
@@ -300,11 +301,16 @@ TURN_CHECKPOINTS_PROMPT_STATEMENTS = [
         completion_tokens INTEGER DEFAULT 0,
         status TEXT NOT NULL,
         prompt TEXT NOT NULL DEFAULT '',
+        my_generation INTEGER DEFAULT NULL,
         created_at REAL NOT NULL,
         expires_at REAL NOT NULL
     );
     """,
     "ALTER TABLE turn_checkpoints ADD COLUMN prompt TEXT NOT NULL DEFAULT '';",
+]
+
+TURN_CHECKPOINTS_GENERATION_STATEMENTS = [
+    "ALTER TABLE turn_checkpoints ADD COLUMN my_generation INTEGER DEFAULT NULL;",
 ]
 
 MIGRATIONS: list[tuple[int, str, list[str]]] = [
@@ -315,6 +321,7 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (5, "thread_sessions_nullable_remaining_agents", SESSION_NULLABLE_REMAINING_STATEMENTS),
     (6, "thread_sessions_active_prompt_and_pure_skill", SESSION_ACTIVE_PROMPT_STATEMENTS),
     (7, "turn_checkpoints_prompt_column", TURN_CHECKPOINTS_PROMPT_STATEMENTS),
+    (8, "turn_checkpoints_generation_column", TURN_CHECKPOINTS_GENERATION_STATEMENTS),
 ]
 
 
@@ -470,15 +477,24 @@ class DatabaseManager:
         return conn
 
     def close_all_connections(self) -> None:
-        """Closes all cached SQLite connections across all threads and clears connection state."""
+        """
+        Closes cached SQLite connections owned by the current thread or dead threads.
+        Avoids closing connections belonging to still-live foreign worker threads across thread boundaries.
+        """
+        current_tid = threading.get_ident()
+        alive_tids = {t.ident for t in threading.enumerate() if t.ident is not None}
         with self._conns_lock:
-            for thread_conns in self._thread_conns.values():
-                for conn in thread_conns.values():
-                    try:
-                        conn.close()
-                    except Exception as e:  # noqa: BLE001
-                        logger.debug("Error closing connection during close_all: %s", e)
-            self._thread_conns.clear()
+            remaining_tids: dict[int, dict[Path, sqlite3.Connection]] = {}
+            for tid, thread_conns in list(self._thread_conns.items()):
+                if tid == current_tid or tid not in alive_tids:
+                    for conn in thread_conns.values():
+                        try:
+                            conn.close()
+                        except Exception as e:  # noqa: BLE001
+                            logger.debug("Error closing connection during close_all: %s", e)
+                else:
+                    remaining_tids[tid] = thread_conns
+            self._thread_conns = remaining_tids
         with self._init_lock:
             self._initialized_paths.clear()
 
@@ -491,31 +507,46 @@ class DatabaseManager:
     @contextmanager
     def transaction(self, immediate: bool = True) -> Generator[sqlite3.Connection, None, None]:
         """
-        Context manager for atomic write transactions on the cached connection.
-        Uses BEGIN IMMEDIATE by default to prevent writer lock escalation deadlocks.
-        Rejects nested or interleaved transactions on the same thread.
+        Re-entrant context manager for atomic write transactions on the cached connection.
+        Uses BEGIN IMMEDIATE for the outermost transaction and SAVEPOINTs for nested calls.
         """
-        if getattr(self._local, "in_transaction", False):
-            raise RuntimeError("Nested or interleaved SQLite transaction detected on the same thread.")
-        self._local.in_transaction = True
-        conn = None
-        try:
-            conn = self._get_cached_connection()
-            if immediate:
-                conn.execute("BEGIN IMMEDIATE;")
-            else:
-                conn.execute("BEGIN;")
-            yield conn
-            conn.execute("COMMIT;")
-        except Exception:
+        tx_depth = getattr(self._local, "tx_depth", 0)
+        conn = self._get_cached_connection()
+        if tx_depth == 0:
+            self._local.tx_depth = 1
+            self._local.in_transaction = True
             try:
-                if conn is not None:
+                if immediate:
+                    conn.execute("BEGIN IMMEDIATE;")
+                else:
+                    conn.execute("BEGIN;")
+                yield conn
+                conn.execute("COMMIT;")
+            except Exception:
+                try:
                     conn.execute("ROLLBACK;")
-            except Exception as rollback_err:  # noqa: BLE001
-                logger.debug(f"[DATABASE] Rollback failed or unneeded: {rollback_err}")
-            raise
-        finally:
-            self._local.in_transaction = False
+                except Exception as rollback_err:  # noqa: BLE001
+                    logger.debug(f"[DATABASE] Rollback failed or unneeded: {rollback_err}")
+                raise
+            finally:
+                self._local.tx_depth = 0
+                self._local.in_transaction = False
+        else:
+            sp_name = f"sp_{tx_depth}"
+            self._local.tx_depth = tx_depth + 1
+            conn.execute(f"SAVEPOINT {sp_name};")
+            try:
+                yield conn
+                conn.execute(f"RELEASE SAVEPOINT {sp_name};")
+            except Exception:
+                try:
+                    conn.execute(f"ROLLBACK TO SAVEPOINT {sp_name};")
+                    conn.execute(f"RELEASE SAVEPOINT {sp_name};")
+                except Exception as rollback_err:  # noqa: BLE001
+                    logger.debug(f"[DATABASE] Savepoint rollback failed: {rollback_err}")
+                raise
+            finally:
+                self._local.tx_depth = tx_depth
 
     def init_db(self, db_path: Path | None = None) -> None:
         """Initializes all database tables and indices idempotently."""

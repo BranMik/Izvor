@@ -123,10 +123,13 @@ class EntityResolver:
             if cfg.get("username"):
                 target_strs.append(self.normalize(cfg["username"]))
             for ts in target_strs:
+                reverse_match = len(ts) >= 4 and (
+                    ts in norm_cleaned or (norm_stripped and ts in norm_stripped)
+                )
                 if (
                     norm_cleaned in ts
-                    or ts in norm_cleaned
-                    or (norm_stripped and (norm_stripped in ts or ts in norm_stripped))
+                    or reverse_match
+                    or (norm_stripped and norm_stripped in ts)
                 ):
                     matches.append(key)
                     break

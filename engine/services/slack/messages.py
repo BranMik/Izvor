@@ -1,4 +1,5 @@
 import inspect
+import json
 import logging
 from pathlib import Path
 import re
@@ -74,19 +75,29 @@ def _sanitize_and_truncate_slack_text(text: str, max_chars: int = 3800) -> str:
     return f"{truncated.strip()}\n\n_...[truncated to fit Slack limits]_"
 
 
+_PRESERVED_INTERACTIVE_ACTION_IDS: frozenset[str] = frozenset({
+    "hitl_approve_tool",
+    "hitl_deny_tool",
+    "resume_sequence_action",
+})
+
+
 def _prepare_outbound_payload(
     text: str,
     blocks: list[dict[str, Any]] | None = None,
     user_id: str = "Izvor",
     max_chars: int = 3800,
-) -> tuple[str, list[dict[str, Any]] | None]:
+) -> tuple[str, list[dict[str, Any]] | None, str | None]:
     """
     Central outbound dispatch processor:
-    1. Scans text and blocks for secrets (DLP). If found, blocks the message and records an audit event.
+    1. Scans text and blocks for secrets (DLP). If found, blocks the message and records an audit event,
+       preserving safe interactive HITL/circuit-breaker action blocks when present.
     2. Neutralizes broadcast mentions (@everyone, @channel, @here).
     3. Truncates text cleanly within Slack character limits.
+    Returns (clean_text, clean_blocks, matched_dlp_rule).
     """
     clean_text = str(text or "")
+    raw_blocks = list(blocks) if blocks else None
     matched_rule = scan_output_for_secrets(clean_text, user_id=user_id)
     if blocks:
         blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id=user_id)
@@ -98,10 +109,22 @@ def _prepare_outbound_payload(
             f"[SECURITY] Outbound message for '{user_id}' blocked by DLP guardrail rule: {matched_rule}"
         )
         clean_text = f"⚠️ *Message blocked by security policy.* (Rule: {matched_rule})"
-        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": clean_text}}]
+        preserved_actions: list[dict[str, Any]] = []
+        if raw_blocks:
+            for block in raw_blocks:
+                if not isinstance(block, dict) or block.get("type") != "actions":
+                    continue
+                elements = block.get("elements") or []
+                has_preserved = any(
+                    isinstance(el, dict) and el.get("action_id") in _PRESERVED_INTERACTIVE_ACTION_IDS
+                    for el in elements
+                )
+                if has_preserved and scan_output_for_secrets(json.dumps(block, default=str), user_id=user_id) is None:
+                    preserved_actions.append(block)
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": clean_text}}] + preserved_actions
 
     clean_text = _sanitize_and_truncate_slack_text(clean_text, max_chars=max_chars)
-    return clean_text, blocks
+    return clean_text, blocks, matched_rule
 
 
 async def post_agent_response(
@@ -124,12 +147,20 @@ async def post_agent_response(
             return await res
         return res
 
+    text, blocks, matched_rule = _prepare_outbound_payload(text, blocks, user_id=username)
+
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
         logger.warning(
             f"[MOCK POST] Channel: {channel_id}, Thread: {thread_ts}, Persona: {username} ({icon_url})\nText: {text}"
         )
-        return {"ok": True, "mock": True}
+        return {
+            "ok": True,
+            "mock": True,
+            "dlp_blocked": bool(matched_rule),
+            "dlp_rule": matched_rule,
+            "delivered_text": text,
+        }
 
     try:
         resolved_icon = resolve_avatar_url(icon_url)
@@ -157,8 +188,6 @@ async def post_agent_response(
             f"[SLACK] chat_postMessage channel={channel_id} thread_ts={thread_ts} as '{username}' icon_url='{final_icon_url}'"
         )
 
-        text, blocks = _prepare_outbound_payload(text, blocks, user_id=username)
-
         await slack_rate_limiter.acquire()
         client = get_slack_async_client()
         response = await client.chat_postMessage(
@@ -171,7 +200,11 @@ async def post_agent_response(
             unfurl_links=False,
             unfurl_media=False,
         )
-        return response.data
+        res_data = dict(response.data) if isinstance(response.data, dict) else {"ok": True}
+        res_data["dlp_blocked"] = bool(matched_rule)
+        res_data["dlp_rule"] = matched_rule
+        res_data["delivered_text"] = text
+        return res_data
     except SlackApiError as e:
         logger.error(f"Error posting message to Slack: {e.response['error']}")
         raise
@@ -313,6 +346,8 @@ async def fetch_thread_history(
                 or msg.get("is_scribe_note")
                 or msg.get("is_conclusion_note")
                 or (is_bot_msg and msg_text.strip().startswith(("⚠️", "⚙️", "🔒", "🗑️", "🧪")))
+                or "EXPENSE LIMIT REACHED FOR THE THREAD" in msg_text
+                or "DAILY WORKSPACE BUDGET EXCEEDED" in msg_text
             ):
                 continue
 
@@ -358,7 +393,7 @@ async def post_thread_note(
     Posts a live updatable summary/notes message inside the given Slack thread.
     Optionally pins the note message for quick discovery. Supports Block Kit blocks.
     """
-    text, blocks = _prepare_outbound_payload(text, blocks, user_id=username)
+    text, blocks, matched_rule = _prepare_outbound_payload(text, blocks, user_id=username)
 
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
@@ -366,7 +401,15 @@ async def post_thread_note(
         logger.info(
             f"[MOCK NOTE] Posted mock thread note in channel {channel_id}, thread {thread_ts}: {mock_ts}"
         )
-        return {"ok": True, "ts": mock_ts, "mock": True, "blocks": blocks}
+        return {
+            "ok": True,
+            "ts": mock_ts,
+            "mock": True,
+            "blocks": blocks,
+            "dlp_blocked": bool(matched_rule),
+            "dlp_rule": matched_rule,
+            "delivered_text": text,
+        }
 
     try:
 
@@ -468,7 +511,7 @@ async def update_thread_note(
     Updates an existing live summary/notes message in-place via Slack chat.update.
     Supports Block Kit blocks.
     """
-    text, blocks = _prepare_outbound_payload(text, blocks, user_id="system_update")
+    text, blocks, matched_rule = _prepare_outbound_payload(text, blocks, user_id="system_update")
 
     bot_token = get_slack_bot_token()
     if (
@@ -477,7 +520,15 @@ async def update_thread_note(
         or (message_ts and str(message_ts).startswith("mock_"))
     ):
         logger.info(f"[MOCK NOTE] Updated mock note {message_ts} ({len(text)} chars)")
-        return {"ok": True, "ts": message_ts, "mock": True, "blocks": blocks}
+        return {
+            "ok": True,
+            "ts": message_ts,
+            "mock": True,
+            "blocks": blocks,
+            "dlp_blocked": bool(matched_rule),
+            "dlp_rule": matched_rule,
+            "delivered_text": text,
+        }
 
     try:
 
@@ -494,7 +545,13 @@ async def update_thread_note(
             kwargs["blocks"] = blocks
         await client.chat_update(**kwargs)
         logger.info(f"[SLACK NOTE] Successfully updated live note message {message_ts}")
-        return {"ok": True, "ts": message_ts}
+        return {
+            "ok": True,
+            "ts": message_ts,
+            "dlp_blocked": bool(matched_rule),
+            "dlp_rule": matched_rule,
+            "delivered_text": text,
+        }
     except SlackApiError as e:
         logger.error(
             f"[SLACK NOTE] Error updating note {message_ts}: {e.response.get('error', e)}"
@@ -514,7 +571,7 @@ async def post_usage_message(
     """
     Posts a new usage tracking report message in the specified usage channel.
     """
-    text, _ = _prepare_outbound_payload(text, None, user_id=username)
+    text, _, _ = _prepare_outbound_payload(text, None, user_id=username)
 
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
@@ -558,7 +615,7 @@ async def update_usage_message(
     """
     Updates an existing usage tracking report message in-place via chat.update.
     """
-    text, _ = _prepare_outbound_payload(text, None, user_id="Izvor Usage Analyst")
+    text, _, _ = _prepare_outbound_payload(text, None, user_id="Izvor Usage Analyst")
 
     bot_token = get_slack_bot_token()
     if (
@@ -602,10 +659,17 @@ async def post_message_to_slack(
     icon_emoji: str | None = None,
     blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    text, blocks = _prepare_outbound_payload(text, blocks, user_id=username or "system")
+    text, blocks, matched_rule = _prepare_outbound_payload(text, blocks, user_id=username or "system")
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
-        return {"ok": True, "mock": True, "ts": f"mock_msg_{int(time.time() * 1000)}.000"}
+        return {
+            "ok": True,
+            "mock": True,
+            "ts": f"mock_msg_{int(time.time() * 1000)}.000",
+            "dlp_blocked": bool(matched_rule),
+            "dlp_rule": matched_rule,
+            "delivered_text": text,
+        }
     try:
         kwargs: dict[str, Any] = {
             "channel": channel_id,
@@ -626,7 +690,11 @@ async def post_message_to_slack(
         await slack_rate_limiter.acquire()
         client = get_slack_async_client()
         res = await client.chat_postMessage(**kwargs)
-        return res.data
+        res_data = dict(res.data) if isinstance(res.data, dict) else {"ok": True}
+        res_data["dlp_blocked"] = bool(matched_rule)
+        res_data["dlp_rule"] = matched_rule
+        res_data["delivered_text"] = text
+        return res_data
     except SlackApiError as e:
         logger.error(f"Slack API error posting message to Slack: {e}")
         return {"ok": False, "error": str(e)}

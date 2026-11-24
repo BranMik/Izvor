@@ -107,12 +107,15 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
         logger.warning(f"[LIST SKILLS] LLM presentation fallback to direct text: {e}")
         formatted_msg = skills_directory_text
 
-    # Post message as system agent
-    await post_system_message(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        text=formatted_msg,
-    )
+    # Post message as system agent (Slack delivery failures must not undo standalone command halt)
+    try:
+        await post_system_message(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            text=formatted_msg,
+        )
+    except Exception as post_err:  # noqa: BLE001
+        logger.warning(f"[LIST SKILLS] Failed to post skills directory to {channel_id}:{thread_ts}: {post_err}")
 
     # Halt pipeline so no more agents are called
     return {"ok": True, "halted": True, "action": "list_skills"}

@@ -196,6 +196,16 @@ def classify_agent_error(e: Exception) -> str:
         return "api_key_not_found"
 
     try:
+        import httpx
+
+        httpx_timeout_cls: tuple[type[BaseException], ...] = (httpx.TimeoutException,)
+    except ImportError:
+        httpx_timeout_cls = ()
+
+    if isinstance(e, (TimeoutError, asyncio.TimeoutError) + httpx_timeout_cls):
+        return "service_unavailable"
+
+    try:
         if isinstance(
             e,
             (
@@ -231,8 +241,11 @@ def classify_agent_error(e: Exception) -> str:
         or "serveroverloaded" in error_type
         or "overloadederror" in error_type
         or "capacityerror" in error_type
+        or "timeout" in error_type
         or "service_unavailable" in error_str
         or "service unavailable" in error_str
+        or "timed out" in error_str
+        or "timeout" in error_str
         or re.search(r"\b(?:http|status|code|error)[:\s=]*500\b|\b500\s+(?:internal|error|server)\b", error_str)
         is not None
         or _has_status_code(error_str, 502, 503, 504, 529)
@@ -434,6 +447,11 @@ async def execute_llm_with_retry(
             logger.warning(
                 f"[LLM] Attempt {attempt}/{effective_max_attempts} timed out for {agent_key}: {exc}"
             )
+            if not allow_503_immediate_retry:
+                logger.info(
+                    f"[LLM] Timeout detected on first encounter for {agent_key}. Skipping immediate retry."
+                )
+                raise
             sleep_call = _llm_sleep_fn or asyncio.sleep
             if attempt < effective_max_attempts:
                 await sleep_call(_calculate_backoff_delay(attempt))

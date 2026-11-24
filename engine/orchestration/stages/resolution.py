@@ -215,6 +215,7 @@ class ResolutionStage:
                     agent_key=ctx.agent_key,
                     pause_reason="circuit_breaker",
                     prompt=(ctx.prompt or ctx.raw_text_cleaned or ctx.input.raw_text or ""),
+                    my_generation=getattr(ctx, "my_generation", None),
                     messages=ctx.messages or [],
                     accumulated_history=ctx.input.in_memory_history or [],
                     prompt_tokens=ctx.output.total_prompt_tokens,

@@ -272,3 +272,33 @@ async def test_post_live_run_summary_offline_records_on_bus_without_slack_calls(
     assert len(client.bus.run_summaries) == 1
     assert "Direct /[Persona] routing" in client.bus.run_summaries[0]["thread_replies"][0]
     await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_offline_mock_post_agent_response_runs_outbound_dlp_preparation():
+    """TKT-1417: Offline mock_post_agent_response executes real _prepare_outbound_payload() DLP filtering."""
+    client = SlackProtocolClient(live_mode=False)
+    try:
+        clean_res = await client.mock_post_agent_response(
+            channel_id="C_DLP_E2E",
+            thread_ts="1700.111",
+            text="Architecture review looks <!here> clean.",
+            username="Architect",
+        )
+        assert clean_res["dlp_blocked"] is False
+        assert "<!here>" not in clean_res["delivered_text"]
+
+        fake_openai_key = "-".join(["sk", "proj", "1234567890abcdefghijklmnopqrstuvwxyzABCD"])
+        fake_openai_prefix = "-".join(["sk", "proj", "1234567890"])
+        blocked_res = await client.mock_post_agent_response(
+            channel_id="C_DLP_E2E",
+            thread_ts="1700.111",
+            text=f"Leaked token {fake_openai_key} inside message",
+            username="Architect",
+        )
+        assert blocked_res["dlp_blocked"] is True
+        assert blocked_res["dlp_rule"] is not None
+        assert fake_openai_prefix not in blocked_res["delivered_text"]
+        assert client.bus.posted_messages[-1]["text"] == blocked_res["delivered_text"]
+    finally:
+        await client.aclose()

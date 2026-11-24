@@ -24,13 +24,13 @@ RAG_SCHEMA = pa.schema([
     pa.field("updated_at", pa.float64()),
 ])
 
-_SAFE_ID_RE = re.compile(r"^[\w.:/ '-]{1,256}$", re.UNICODE)
+_SAFE_ID_RE = re.compile(r"^[\w.:/ '\-(),+&@]{1,256}$", re.UNICODE)
 
 
 def _sql_literal(val: str) -> str:
     """
     Validates and sanitizes a string literal for safe interpolation into LanceDB/DataFusion SQL expressions.
-    Rejects control characters / NUL bytes and values that do not match _SAFE_ID_RE.
+    Rejects control characters / NUL bytes / SQL injection metacharacters and values outside _SAFE_ID_RE.
     Escapes single quotes by doubling them.
     Returns the enclosed string with single quotes, e.g. 'clean_value'.
     """
@@ -38,6 +38,8 @@ def _sql_literal(val: str) -> str:
         raise ValueError(f"Expected string literal, got {type(val).__name__}")
     if "\x00" in val or any(ord(c) < 32 for c in val):
         raise ValueError("Control characters and NUL bytes are not permitted in SQL literals.")
+    if any(seq in val for seq in (";", "--", "/*", "*/", "\\")):
+        raise ValueError(f"Identifier '{val}' contains unsafe SQL/escape characters.")
     clean = val.strip()
     if not _SAFE_ID_RE.match(clean):
         raise ValueError(f"Identifier '{val}' contains unsafe characters.")
@@ -141,8 +143,9 @@ class VectorStore:
                 safe_doc_id = _sql_literal(doc_id)
                 table.delete(f"doc_id = {safe_doc_id}")
                 logger.info(f"[RAG VectorStore] Deleted chunks for doc_id='{doc_id}'")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.error(f"[RAG VectorStore] Failed to delete chunks for doc_id='{doc_id}': {e}")
+                raise
 
     def delete_by_chunk_ids(self, chunk_ids: list[str]) -> None:
         """Deletes chunks by their unique chunk_id list."""
@@ -154,8 +157,9 @@ class VectorStore:
                 id_list_str = ", ".join(_sql_literal(cid) for cid in chunk_ids)
                 table.delete(f"chunk_id IN ({id_list_str})")
                 logger.info(f"[RAG VectorStore] Deleted {len(chunk_ids)} chunk(s) by ID")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.error(f"[RAG VectorStore] Failed to delete chunks by IDs: {e}")
+                raise
 
     def search(
         self,

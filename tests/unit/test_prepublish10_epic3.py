@@ -243,3 +243,69 @@ def test_basic_auth_throttling_on_failures():
     finally:
         core_cfg.set_admin_credentials_override(None, None)
         ip_rate_limiter.reset()
+
+
+@pytest.mark.anyio
+async def test_dlp_preserves_interactive_action_blocks_and_redacts_post_record_final_text():
+    """TKT-1403 (CB-14): Outbound DLP preserves HITL/budget action buttons and propagates dlp_blocked to PostRecordStage."""
+    from orchestration.protocols import PipelineDeps
+    from orchestration.stages.post_record import PostRecordStage
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext
+    from services.slack.messages import post_agent_response
+
+    mock_post = AsyncMock(return_value=MagicMock(data={"ok": True, "ts": "999.111"}))
+    mock_client = MagicMock(chat_postMessage=mock_post)
+    fake_slack_token = "-".join(["xoxb", "1234567890", "1234567890123", "abcdefghijklmnopqrstuvwx"])
+    secret_text = f"Expense halt leaked key: {fake_slack_token}"
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": secret_text}},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Continue Sequence"},
+                    "action_id": "resume_sequence_action",
+                    "value": "C_DLP:100.1",
+                }
+            ],
+        },
+    ]
+
+    configure_token("xoxb-real-token")
+    configure_slack_async_client(mock_client)
+    try:
+        res = await post_agent_response(
+            channel_id="C_DLP",
+            thread_ts="100.1",
+            text=secret_text,
+            username="Architect",
+            blocks=blocks,
+        )
+        assert res["dlp_blocked"] is True
+        assert "Message blocked by security policy" in res["delivered_text"]
+        posted_blocks = mock_post.call_args.kwargs["blocks"]
+        assert any(b.get("type") == "actions" for b in posted_blocks)
+
+        # Now verify PostRecordStage overwrites ctx.output.final_text when dlp_blocked=True
+        thread_state_manager.clear_state("C_DLP", "100.2")
+        ctx = TurnContext(channel_id="C_DLP", thread_ts="100.2", raw_text="hi")
+        ctx.agent_key = "agent-10001"
+        ctx.agent_cfg = {"username": "Architect", "model": "test-model"}
+        ctx.output.final_text = secret_text
+        stage = PostRecordStage(
+            PipelineDeps(
+                slack_poster=post_agent_response,
+                debate_turn_pacing_seconds=0.0,
+                slack_post_pause_seconds=0.0,
+            )
+        )
+        post_res = await stage.stage_post_and_record(ctx)
+        assert post_res["dlp_blocked"] is True
+        assert fake_slack_token not in post_res["final_text"]
+        assert fake_slack_token[:15] not in post_res["final_text"]
+        assert "Message blocked by security policy" in post_res["final_text"]
+    finally:
+        reset_token()
+        reset_slack_async_client()

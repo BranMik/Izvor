@@ -464,3 +464,69 @@ async def test_hitl_approval_skips_continue_when_checkpoint_already_claimed():
     finally:
         thread_state_manager.reset_task_dispatcher()
 
+
+@pytest.mark.anyio
+async def test_hitl_approval_with_real_dispatcher_cancels_prior_task_and_resumes():
+    """TKT-1417: Real thread_state_manager.dispatch_discussion_task cancels older active task and executes resume."""
+    import asyncio
+    from types import SimpleNamespace
+    from adapters.slack.actions.hitl_actions import _execute_and_resume_hitl_approval
+    from core.domain import TurnCheckpoint
+    from orchestration.thread_state import thread_state_manager
+
+    ch = "C_HITL_REAL_DISP"
+    ts = "1700000950.0001"
+    thread_state_manager.reset_all()
+    thread_state_manager.reset_task_dispatcher()
+    prior_cancelled = False
+
+    async def _prior_task():
+        nonlocal prior_cancelled
+        try:
+            await asyncio.sleep(30.0)
+        except asyncio.CancelledError:
+            prior_cancelled = True
+            raise
+
+    req = SimpleNamespace(
+        request_id="req_real_disp",
+        channel_id=ch,
+        thread_ts=ts,
+        agent_name="Arbitrator",
+        fn_name="safe_lookup",
+        fn_args={"q": "x"},
+    )
+    chk = TurnCheckpoint(
+        checkpoint_id="chk_real_disp",
+        session_id=f"{ch}:{ts}",
+        channel_id=ch,
+        thread_ts=ts,
+        agent_key="Arbitrator",
+        pause_reason="hitl",
+        status="ACTIVE",
+        my_generation=0,
+    )
+    try:
+        old_task = thread_state_manager.dispatch_discussion_task(ch, ts, _prior_task())
+        await asyncio.sleep(0)
+        resume_mock = AsyncMock(return_value={"ok": True, "agent_key": "Arbitrator", "final_text": "Done"})
+        cont_mock = AsyncMock()
+        with (
+            patch("adapters.slack.actions.hitl_actions.is_slack_admin", return_value=True),
+            patch("services.hitl.consume_tool_approval", return_value=True),
+            patch("skills.registry.skill_registry.execute_tool_async", AsyncMock(return_value="tool_ok")),
+            patch("adapters.slack.actions.hitl_actions.post_message_to_slack", AsyncMock(return_value={"ok": True})),
+            patch("services.turn_checkpoint_store.turn_checkpoint_store.get_checkpoint_by_hitl_request", return_value=chk),
+            patch("orchestration.turn_pipeline.TurnPipeline.resume_from_checkpoint", resume_mock),
+            patch("orchestration.agent_router.continue_discussion_from_turn_result", cont_mock),
+        ):
+            await _execute_and_resume_hitl_approval(req, user_id="U_ADMIN")
+            new_task = thread_state_manager.get_active_task(ch, ts)
+            assert new_task is not None and new_task is not old_task
+            await new_task
+            assert prior_cancelled is True
+            resume_mock.assert_awaited_once()
+            cont_mock.assert_awaited_once()
+    finally:
+        thread_state_manager.reset_all()
+

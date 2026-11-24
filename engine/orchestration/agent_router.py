@@ -272,6 +272,8 @@ async def process_and_respond(
     isolated_branch: bool = False,
     deps: PipelineDeps | None = None,
     guardrail_checked: bool = False,
+    defer_round_decrement: bool = False,
+    force_termination_override: bool = False,
 ) -> dict[str, Any]:
     """
     Main background handler: parses prompt, builds conversation history,
@@ -373,6 +375,8 @@ async def process_and_respond(
         in_memory_history=in_memory_history,
         target_agent_override=target_agent_override,
         isolated_branch=isolated_branch,
+        defer_round_decrement=defer_round_decrement,
+        force_termination_override=force_termination_override,
     )
     pipeline = TurnPipeline(deps=active_deps)
     return await pipeline.run(ctx)
@@ -413,6 +417,7 @@ async def orchestrate_discussion(
     is_bot_trigger: bool = False,
     deps: PipelineDeps | None = None,
     guardrail_checked: bool = False,
+    accumulated_history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Internal multi-agent discussion loop:
@@ -430,6 +435,7 @@ async def orchestrate_discussion(
         target_agent_override=target_agent_override,
         is_bot_trigger=is_bot_trigger,
         guardrail_checked=guardrail_checked,
+        accumulated_history=accumulated_history,
     )
 
 

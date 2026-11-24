@@ -48,7 +48,8 @@ async def require_directive_admin(
     """
     Enforces that only authorized Slack Workspace Administrators can execute
     privileged directives (e.g. granting/revoking thread skills or constraints).
-    Logs audit events and emits system error messages on unauthorized attempts.
+    Logs audit events and emits system error messages ONLY on unauthorized attempts;
+    successful execution audits must be emitted after action completion.
     """
     from core.config import is_slack_admin
     from services.audit_logger import log_audit_event
@@ -71,27 +72,42 @@ async def require_directive_admin(
         except Exception as ae:  # noqa: BLE001
             logger.error(f"[VALIDATION] Failed to emit audit event for unauthorized directive: {ae}")
 
-        await post_sys_msg(
-            channel_id=ctx.input.channel_id,
-            thread_ts=ctx.input.thread_ts,
-            text=f"⛔ *Permission Denied*: Only workspace administrators can execute `/{directive_name}`.",
-        )
+        try:
+            await post_sys_msg(
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
+                text=f"⛔ *Permission Denied*: Only workspace administrators can execute `/{directive_name}`.",
+            )
+        except Exception as post_err:  # noqa: BLE001
+            logger.warning(f"[VALIDATION] Failed delivering unauthorized directive notice: {post_err}")
         return {"ok": False, "halted": True, "action": directive_name, "reason": "unauthorized"}
 
+    return None
+
+
+def _log_admin_directive_audit(
+    ctx: TurnContext,
+    directive_name: str,
+    details: dict[str, Any] | None = None,
+    *,
+    status: str = "SUCCESS",
+) -> None:
+    """Records ADMIN_DIRECTIVE_EXECUTED after directive execution finishes."""
+    from services.audit_logger import log_audit_event
+
+    user_id = getattr(ctx.input, "user_id", None)
     try:
         log_audit_event(
             event_type="ADMIN_DIRECTIVE_EXECUTED",
-            actor={"type": "slack_admin", "id": user_id},
+            actor={"type": "slack_admin", "id": user_id or "unknown"},
             action=directive_name,
             target=f"{ctx.input.channel_id}:{ctx.input.thread_ts}",
             details=details or {},
             severity="WARNING",
-            status="SUCCESS",
+            status=status,
         )
     except Exception as ae:  # noqa: BLE001
         logger.error(f"[VALIDATION] Failed to emit admin directive audit event: {ae}")
-
-    return None
 
 
 async def handle_slash_directives(
@@ -174,24 +190,36 @@ async def handle_slash_directives(
         if admin_check:
             return admin_check
 
-        summary = await asyncio.to_thread(forget_thread, ctx.input.channel_id, ctx.input.thread_ts)
-        await log_audit_event_async(
-            event_type="GDPR_THREAD_FORGOTTEN",
-            actor={"type": "user", "id": getattr(ctx.input, "user_id", None) or "unknown"},
-            action="forget_thread",
-            target=f"{ctx.input.channel_id}:{ctx.input.thread_ts}",
-            details=summary,
-            severity="WARNING",
-            status="SUCCESS",
+        caller_task = getattr(ctx, "current_task", None) or asyncio.current_task()
+        summary = await asyncio.to_thread(
+            forget_thread,
+            ctx.input.channel_id,
+            ctx.input.thread_ts,
+            caller_task=caller_task,
         )
-        await post_sys_msg(
-            channel_id=ctx.input.channel_id,
-            thread_ts=ctx.input.thread_ts,
-            text=(
-                "🧹 *Thread Data Forgotten (GDPR Purge)*: All persisted histories, notes, "
-                "downloads, and memory caches for this channel thread have been permanently deleted."
-            ),
-        )
+        try:
+            await log_audit_event_async(
+                event_type="GDPR_THREAD_FORGOTTEN",
+                actor={"type": "user", "id": getattr(ctx.input, "user_id", None) or "unknown"},
+                action="forget_thread",
+                target=f"{ctx.input.channel_id}:{ctx.input.thread_ts}",
+                details=summary,
+                severity="WARNING",
+                status="SUCCESS",
+            )
+        except Exception as ae:  # noqa: BLE001
+            logger.warning(f"[VALIDATION] Failed logging GDPR forget audit event: {ae}")
+        try:
+            await post_sys_msg(
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
+                text=(
+                    "🧹 *Thread Data Forgotten (GDPR Purge)*: All persisted histories, notes, "
+                    "downloads, and memory caches for this channel thread have been permanently deleted."
+                ),
+            )
+        except Exception as pe:  # noqa: BLE001
+            logger.warning(f"[VALIDATION] Failed delivering GDPR forget notice: {pe}")
         return {"ok": True, "halted": True, "action": "forget_thread", "deleted": summary}
 
     # Process /grant_skill_for_all action
@@ -357,12 +385,13 @@ async def handle_slash_directives(
             )
             await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=exp_msg)
 
-    # Execute any registered orchestrator action handlers
-    try:
-        from core.registry import get_skill_registry
+    # Execute any registered orchestrator action handlers (isolate failures per action)
+    from core.registry import get_skill_registry
 
-        skill_registry = get_skill_registry()
-        for act in ctx.actions:
+    skill_registry = get_skill_registry()
+    for act in ctx.actions:
+        sk = None
+        try:
             sk = (
                 skill_registry.resolve_skill(act.name)
                 if hasattr(skill_registry, "resolve_skill")
@@ -375,13 +404,25 @@ async def handle_slash_directives(
                     )
                     continue
                 act_res = await sk.action_handler(ctx, act.params)
+                is_admin_act = bool(getattr(sk, "requires_admin", False))
+                act_ok = not (isinstance(act_res, dict) and act_res.get("ok") is False)
+                if is_admin_act:
+                    _log_admin_directive_audit(
+                        ctx,
+                        sk.name,
+                        details=act.params or {},
+                        status="SUCCESS" if act_ok else "FAILURE",
+                    )
                 if act_res and isinstance(act_res, dict) and act_res.get("halted"):
                     return act_res
-    except Exception as e:  # noqa: BLE001 - Error boundary isolates dynamic skill action execution from pipeline validation
-        logger.error(f"[VALIDATION] Error executing skill action handler: {e}")
+        except Exception as e:  # noqa: BLE001 - Isolate each skill action failure inside loop
+            logger.error(f"[VALIDATION] Error executing skill action handler '{act.name}': {e}")
+            if sk and getattr(sk, "requires_admin", False):
+                _log_admin_directive_audit(ctx, sk.name, details=act.params or {}, status="FAILURE")
 
     # Update persistent word limits and off toggles
     from core.config import is_slack_admin
+    from services.audit_logger import log_audit_event
 
     is_admin = is_slack_admin(getattr(ctx.input, "user_id", None))
 
@@ -396,8 +437,23 @@ async def handle_slash_directives(
     )
     if attempted_off and not is_admin:
         logger.warning(f"[SECURITY] Non-admin '{ctx.input.user_id}' denied from turning off directives on {ctx.thread_key}")
+        try:
+            log_audit_event(
+                event_type="UNAUTHORIZED_DIRECTIVE_ATTEMPT",
+                actor={"type": "slack_user", "id": getattr(ctx.input, "user_id", None) or "unknown"},
+                action="directive_off_toggle",
+                target=f"{ctx.input.channel_id}:{ctx.input.thread_ts}",
+                details={"modifiers": dict(ctx.modifiers or {})},
+                severity="CRITICAL",
+                status="BLOCKED",
+            )
+        except Exception as ae:  # noqa: BLE001
+            logger.error(f"[VALIDATION] Failed emitting audit for unauthorized off toggle: {ae}")
         msg = "⚠️ *Permission Denied*: Only Slack administrators are authorized to turn off safety or constraint directives."
-        await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
+        try:
+            await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
+        except Exception as post_err:  # noqa: BLE001
+            logger.warning(f"[VALIDATION] Failed delivering unauthorized off notice: {post_err}")
         return {"ok": False, "halted": True, "error": "admin_required"}
 
     max_words_val = (ctx.modifiers or {}).get("max_words")
@@ -496,9 +552,12 @@ async def handle_slash_directives(
         for ag in _normalize_agent_refs(ctx.included_agents):
             thread_state_manager.add_included_agent(ctx.input.channel_id, ctx.input.thread_ts, ag)
 
-    # Persist custom format modifiers into thread state
+    # Persist custom format modifiers into thread state (strictly verified prompt modifier skills only)
+    registered_mod_skills = {
+        s.name for s in skill_registry.list_skills() if getattr(s, "instructions", "")
+    }
     custom_mods = {
-        k: v
+        k: ("".join(ch for ch in str(v) if ord(ch) >= 32 and ch not in "<>")[:128] if isinstance(v, str) else v)
         for k, v in (ctx.modifiers or {}).items()
         if k
         not in (
@@ -508,10 +567,12 @@ async def handle_slash_directives(
             "file_use",
             "target_file",
             "excluded_agents",
+            "included_agents",
             "scribe_max_words",
             "scribe_min_words",
             "language",
         )
+        and k in registered_mod_skills
     }
     if custom_mods and not ctx.input.is_bot_trigger:
         existing_mods = thread_state_manager.get_format_modifiers(ctx.input.channel_id, ctx.input.thread_ts)

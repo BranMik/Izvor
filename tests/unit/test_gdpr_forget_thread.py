@@ -241,3 +241,93 @@ async def test_slash_forget_thread_skill_admin_and_origin_enforcement(tmp_path: 
     finally:
         flat_history_recorder.reset_paths()
 
+
+@pytest.mark.anyio
+async def test_forget_thread_through_pipeline_with_active_task_and_trace_buffer_suppression(tmp_path: Path):
+    """
+    TKT-1408 (CB-08, TF-02):
+    Running /forget_thread inside TurnPipeline.run() while an active asyncio.Task, RoundEvidenceStore items,
+    and _TRACE_BUFFER spans exist must not raise RuntimeError on worker threads, must cancel foreign tasks via
+    safe_cancel_task, must purge RAM evidence + trace buffer, and must NOT write a post-forget turn_traces row.
+    """
+    import asyncio
+    from core.database import get_connection
+    from core.task_utils import safe_cancel_task
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+    from services.telemetry import record_turn_trace, get_turn_traces
+
+    ch = "C_GDPR_E2E"
+    tts = "1712345888.00123"
+    flat_dir = tmp_path / "flat_e2e"
+    flat_history_recorder.configure_paths(flat_dir)
+    thread_state_manager.clear_state(ch, tts)
+
+    try:
+        # Populate RAM RoundEvidenceStore + buffered turn trace before purge
+        thread_state_manager.add_round_evidence(
+            channel_id=ch,
+            thread_ts=tts,
+            tool_name="web_search",
+            arguments={"query": "sensitive"},
+            result="Private evidence",
+            agent_key="agent-10001",
+        )
+        record_turn_trace(
+            session_id=f"{ch}:{tts}",
+            channel_id=ch,
+            thread_ts=tts,
+            agent_key="agent-10001",
+            stage_name="execution",
+            duration_ms=10.0,
+        )
+
+        # Verify safe_cancel_task works from a worker thread with NO running event loop
+        worker_cancelled = asyncio.Event()
+
+        async def _foreign_task():
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                worker_cancelled.set()
+                raise
+
+        t_foreign = asyncio.create_task(_foreign_task())
+        await asyncio.sleep(0)
+        cancelled = await asyncio.to_thread(safe_cancel_task, t_foreign)
+        assert cancelled is True
+        await worker_cancelled.wait()
+
+        # Execute real TurnPipeline.run("/forget_thread") as admin
+        pipeline = TurnPipeline(
+            post_system_message_fn=AsyncMock(return_value={"ok": True}),
+        )
+        ctx = TurnContext(
+            channel_id=ch,
+            thread_ts=tts,
+            raw_text="/forget_thread",
+            user_id="U_GDPR_ADMIN",
+        )
+        with (
+            patch("core.config.is_slack_admin", return_value=True),
+            patch("services.audit_logger.log_audit_event_async", new_callable=AsyncMock),
+        ):
+            res = await pipeline.run(ctx)
+
+        assert res.get("ok") is True
+        assert res.get("halted") is True
+        assert res.get("action") == "forget_thread"
+
+        # RAM RoundEvidenceStore must be empty
+        assert thread_state_manager.evidence.get_round_evidence(ch, tts) == []
+        # Neither buffered nor persisted turn_traces may resurrect for this session
+        assert get_turn_traces(session_id=f"{ch}:{tts}") == []
+        with get_connection() as conn:
+            cnt = conn.execute(
+                "SELECT COUNT(*) FROM turn_traces WHERE channel_id = ? AND thread_ts = ?;",
+                (ch, tts),
+            ).fetchone()[0]
+            assert cnt == 0
+    finally:
+        flat_history_recorder.reset_paths()
+

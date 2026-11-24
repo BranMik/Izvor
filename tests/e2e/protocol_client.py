@@ -28,6 +28,7 @@ from slack_sdk.errors import SlackApiError
 
 import services.slack as _sc
 from services.slack.client_core import get_slack_async_client
+from services.slack.messages import _prepare_outbound_payload
 from core.config import SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, resolve_avatar_url
 from main import app
 
@@ -794,6 +795,20 @@ class SlackProtocolClient:
                 _sc.configure_post_agent_response(self.mock_post_agent_response)
                 _SUPPRESS_SPY_POST_RECORD.reset(tok)
 
+        if real_result is None:
+            clean_text, clean_blocks, matched_rule = _prepare_outbound_payload(
+                text,
+                blocks,
+                user_id=username or "Agent",
+            )
+            dlp_blocked = bool(matched_rule)
+            dlp_rule = matched_rule
+        else:
+            clean_text = real_result.get("delivered_text", text)
+            clean_blocks = blocks
+            dlp_blocked = bool(real_result.get("dlp_blocked", False))
+            dlp_rule = real_result.get("dlp_rule")
+
         ts = (
             str(real_result.get("ts"))
             if real_result and real_result.get("ok") and real_result.get("ts")
@@ -804,9 +819,13 @@ class SlackProtocolClient:
             "channel_id": channel_id,
             "thread_ts": thread_ts,
             "ts": ts,
-            "text": text,
+            "text": clean_text,
+            "blocks": clean_blocks,
             "username": username or "Agent",
             "icon_url": icon_url,
+            "dlp_blocked": dlp_blocked,
+            "dlp_rule": dlp_rule,
+            "delivered_text": clean_text,
             "raw_slack_response": real_result,
         }
         self.bus.posted_messages.append(entry)
@@ -1139,6 +1158,8 @@ class SlackProtocolClient:
                     or str(msg.get("text", ""))
                     .strip()
                     .startswith(("⚠️", "⚙️", "🔒", "🗑️", "🧪", "⛔"))
+                    or "EXPENSE LIMIT REACHED FOR THE THREAD" in str(msg.get("text", ""))
+                    or "DAILY WORKSPACE BUDGET EXCEEDED" in str(msg.get("text", ""))
                 ):
                     continue
                 role = msg.get("role", "assistant")

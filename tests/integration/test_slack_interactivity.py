@@ -86,60 +86,103 @@ async def test_whole_payload_pre_authorization_blocks_mixed_actions():
 
 @pytest.mark.anyio
 async def test_chain_mutation_rejects_unknown_agent_keys():
-    """Verifies that saving sandwich or fixed chains strips unknown agent IDs."""
-    set_admin_slack_user_ids_override("U_ADMIN")
+    """Verifies reserved default preset rejection AND that custom chain saves strip unknown agent IDs."""
+    from config_store.agent_settings import (
+        apply_workflow,
+        get_active_workflow_id,
+        settings_manager,
+    )
+    from config_store.workflow_manager import delete_workflow, save_workflow
+    from core.models import OrchestrationMode
 
+    set_admin_slack_user_ids_override("U_ADMIN")
+    orig_wf = get_active_workflow_id() or "default_review_flow"
+    custom_wf_id = "custom_chain_test_tmp"
     logged_events = []
 
     def record_event(**kwargs):
         logged_events.append(kwargs)
 
-    with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
-         patch("services.slack.views.publish_app_home", AsyncMock()), \
-         patch("adapters.slack.actions.workflow_presets.log_audit_event_async", AsyncMock(side_effect=record_event)), \
-         patch("services.audit_logger.log_audit_event", side_effect=record_event):
+    try:
+        with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
+             patch("services.slack.views.publish_app_home", AsyncMock()), \
+             patch("adapters.slack.actions.workflow_presets.open_dm_channel", AsyncMock(return_value="D_ADM")), \
+             patch("adapters.slack.actions.workflow_presets.post_message_to_slack", AsyncMock(return_value={"ok": True})) as mock_dm, \
+             patch("adapters.slack.actions.workflow_presets.log_audit_event_async", AsyncMock(side_effect=record_event)), \
+             patch("services.audit_logger.log_audit_event", side_effect=record_event):
 
-        payload = {
-            "type": "block_actions",
-            "user": {"id": "U_ADMIN"},
-            "actions": [{"action_id": "save_fixed_chain_button"}],
-            "view": {
-                "state": {
-                    "values": {
-                        "fixed_block": {
-                            "set_fixed_chain_input": {
-                                "value": "agent-10001, invalid_agent_xyz, agent-10002, agent-10003, agent-10014, agent-10012"
+            payload = {
+                "type": "block_actions",
+                "user": {"id": "U_ADMIN"},
+                "actions": [{"action_id": "save_fixed_chain_button"}],
+                "view": {
+                    "state": {
+                        "values": {
+                            "fixed_block": {
+                                "set_fixed_chain_input": {
+                                    "value": "agent-10001, invalid_agent_xyz, agent-10002, agent-10003, agent-10014, agent-10012"
+                                }
                             }
                         }
                     }
-                }
-            },
-        }
+                },
+            }
 
-        req = MagicMock(spec=Request)
-        req.body = AsyncMock(return_value=json.dumps(payload).encode("utf-8"))
-        req.headers = {}
-        bg = BackgroundTasks()
+            # 1. Reserved default preset must block in-place chain mutation (TKT-1414)
+            apply_workflow("default_review_flow")
+            req_blocked = MagicMock(spec=Request)
+            req_blocked.body = AsyncMock(return_value=json.dumps(payload).encode("utf-8"))
+            req_blocked.headers = {}
+            resp_blocked = await handle_slack_interactivity(req_blocked, BackgroundTasks())
+            assert resp_blocked.status_code == 200
+            blocked_audit = next(
+                (e for e in logged_events if e.get("action") == "save_fixed_chain_button" and e.get("status") == "BLOCKED"),
+                None,
+            )
+            assert blocked_audit is not None
+            assert blocked_audit.get("details", {}).get("reason") == "reserved_default_preset"
+            assert mock_dm.await_count == 1
 
-        resp = await handle_slack_interactivity(req, bg)
-        assert resp.status_code == 200
+            # 2. Custom non-reserved preset allows editing and strips unknown agent IDs
+            logged_events.clear()
+            save_workflow(
+                name="Custom Chain Test",
+                mode=OrchestrationMode.FIXED.value,
+                fixed_config={"chain": ["agent-10001", "agent-10002"]},
+                workflow_id=custom_wf_id,
+            )
+            assert apply_workflow(custom_wf_id) is True
 
-        cfg = get_fixed_config()
-        assert "agent-10001" in cfg["chain"]
-        assert "agent-10002" in cfg["chain"]
-        assert cfg["chain"] == [
-            "agent-10001",
-            "agent-10002",
-            "agent-10003",
-            "agent-10014",
-            "agent-10012",
-        ]
-        assert "invalid_agent_xyz" not in cfg["chain"]
+            req = MagicMock(spec=Request)
+            req.body = AsyncMock(return_value=json.dumps(payload).encode("utf-8"))
+            req.headers = {}
+            bg = BackgroundTasks()
 
-        audit_entry = next((e for e in logged_events if e.get("action") == "save_fixed_chain_button"), None)
-        assert audit_entry is not None
-        assert audit_entry.get("event_type") == "ADMIN_CONFIG_CHANGE"
-        assert "invalid_agent_xyz" in audit_entry.get("details", {}).get("invalid_keys", [])
+            resp = await handle_slack_interactivity(req, bg)
+            assert resp.status_code == 200
+
+            cfg = get_fixed_config()
+            assert cfg["chain"] == [
+                "agent-10001",
+                "agent-10002",
+                "agent-10003",
+                "agent-10014",
+                "agent-10012",
+            ]
+            assert "invalid_agent_xyz" not in cfg["chain"]
+
+            settings_manager.load()
+            assert get_fixed_config()["chain"] == cfg["chain"]
+
+            audit_entry = next((e for e in logged_events if e.get("action") == "save_fixed_chain_button"), None)
+            assert audit_entry is not None
+            assert audit_entry.get("event_type") == "ADMIN_CONFIG_CHANGE"
+            assert audit_entry.get("status", "SUCCESS") == "SUCCESS"
+            assert "invalid_agent_xyz" in audit_entry.get("details", {}).get("invalid_keys", [])
+    finally:
+        apply_workflow(orig_wf)
+        delete_workflow(custom_wf_id)
+        set_admin_slack_user_ids_override(None)
 
 
 @pytest.mark.anyio

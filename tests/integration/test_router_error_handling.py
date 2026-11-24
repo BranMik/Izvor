@@ -105,10 +105,12 @@ def test_classify_agent_error():
         == "model_not_found"
     )
 
-    # General error
+    # General error & timeout classification (TKT-1411)
     assert (
         classify_agent_error(Exception("Connection reset by peer")) == "general_error"
     )
+    assert classify_agent_error(TimeoutError("upstream timed out")) == "service_unavailable"
+    assert classify_agent_error(Exception("Request timeout after 120s")) == "service_unavailable"
 
 
 @pytest.mark.anyio
@@ -770,4 +772,37 @@ async def test_execute_llm_with_retry_single_layer_backoff_dynamic_and_dict_unma
         assert final_res.choices[0].message.content == "Sent to alice@example.com"
     finally:
         system_settings_manager._register_core_providers()
+
+
+@pytest.mark.anyio
+async def test_pre_stage3_error_preserves_sqlite_remaining_agents():
+    """TKT-1409 (CB-10): Exceptions raised before Stage 3 hydrates ctx.remaining preserve SQLite remaining_agents in handle_error()."""
+    from orchestration.protocols import PipelineDeps
+    from orchestration.stages.post_record import PostRecordStage
+    from orchestration.turn_pipeline import TurnContext
+
+    ch = "C_ERR_PRE3"
+    ts = "1700008888.0001"
+    thread_state_manager.clear_state(ch, ts)
+    thread_state_manager.set_remaining_agents(ch, ts, ["agent-10001", "agent-10002", "agent-10003"])
+
+    ctx = TurnContext(channel_id=ch, thread_ts=ts, raw_text="Topic")
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"username": "Architect", "model": "test-model"}
+    # Deliberately leave ctx.remaining == [] as happens before Stage 3
+    assert ctx.remaining == []
+
+    stage = PostRecordStage(
+        PipelineDeps(
+            slack_poster=AsyncMock(return_value={"ok": True, "ts": "999.1"}),
+            debate_turn_pacing_seconds=0.0,
+            slack_post_pause_seconds=0.0,
+            token_recorder=lambda **kw: None,
+            notes_updater=lambda **kw: None,
+            usage_updater=lambda **kw: None,
+        )
+    )
+    res = await stage.handle_error(ctx, RuntimeError("Stage 2 lookup failed"))
+    assert res["is_completed"] is False
+    assert thread_state_manager.get_remaining_agents(ch, ts) == ["agent-10001", "agent-10002", "agent-10003"]
 

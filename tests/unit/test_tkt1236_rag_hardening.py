@@ -116,22 +116,30 @@ async def test_sync_engine_triggers_clean_reindex_when_rag_config_drifts(tmp_pat
 
     # 1. Initial sync indexes 1 new document and persists config_hash
     stats1 = await engine.reconcile()
-    assert stats1 == {"new": 1, "modified": 0, "deleted": 0, "unchanged": 0}
+    assert stats1 == {"new": 1, "modified": 0, "deleted": 0, "unchanged": 0, "errors": []}
     initial_hash = manifest_mgr.get_config_hash()
     assert initial_hash is not None
     assert "__meta__" not in manifest_mgr.get_all_records()
 
     # 2. Repeat sync with unchanged files & config -> fast-path unchanged (0 re-embeds)
     stats2 = await engine.reconcile()
-    assert stats2 == {"new": 0, "modified": 0, "deleted": 0, "unchanged": 1}
+    assert stats2 == {"new": 0, "modified": 0, "deleted": 0, "unchanged": 1, "errors": []}
     assert embedder.calls == 1
 
     # 3. Change embedding_model -> config_hash drifts -> forces full re-index even without file edit
     embedder.model = "model-v2"
     stats3 = await engine.reconcile()
-    assert stats3 == {"new": 0, "modified": 1, "deleted": 0, "unchanged": 0}
+    assert stats3 == {"new": 0, "modified": 1, "deleted": 0, "unchanged": 0, "errors": []}
     assert embedder.calls == 2
     assert manifest_mgr.get_config_hash() != initial_hash
+
+    # 4. Corrupt PDF raises and is captured in stats["errors"] rather than silently marked indexed (TKT-1413)
+    bad_pdf = shared_dir / "broken.pdf"
+    bad_pdf.write_bytes(b"%PDF-not-a-valid-stream")
+    stats4 = await engine.reconcile()
+    assert len(stats4["errors"]) == 1
+    assert any("broken.pdf" in err.get("doc_id", "") for err in stats4["errors"])
+    assert "shared/broken.pdf" not in manifest_mgr.get_all_records()
 
 
 @pytest.mark.anyio

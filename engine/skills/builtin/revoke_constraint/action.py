@@ -60,6 +60,9 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
         msg = f"⚠️ *Unknown Revoke Target*: `{target}`. Available: `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `modifiers`, `all`."
 
     if channel_id and thread_ts and msg:
-        await post_system_message(channel_id=channel_id, thread_ts=thread_ts, text=msg)
+        try:
+            await post_system_message(channel_id=channel_id, thread_ts=thread_ts, text=msg)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[REVOKE CONSTRAINT ACTION] Failed to post confirmation to {channel_id}:{thread_ts}: {exc}")
 
     return {"ok": True, "halted": True, "action": "revoke_constraint"}

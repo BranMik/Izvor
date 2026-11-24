@@ -43,8 +43,8 @@ class TurnCheckpointStore:
                         pause_reason, hitl_request_id, messages_json, pending_tool_call_json,
                         active_tools_json, skills_used_json, token_mapping_json,
                         accumulated_history_json, prompt_tokens, completion_tokens,
-                        status, prompt, created_at, expires_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        status, prompt, my_generation, created_at, expires_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(checkpoint_id) DO UPDATE SET
                         session_id = excluded.session_id,
                         channel_id = excluded.channel_id,
@@ -62,6 +62,7 @@ class TurnCheckpointStore:
                         completion_tokens = excluded.completion_tokens,
                         status = excluded.status,
                         prompt = excluded.prompt,
+                        my_generation = excluded.my_generation,
                         created_at = excluded.created_at,
                         expires_at = excluded.expires_at;
                     """,
@@ -83,6 +84,7 @@ class TurnCheckpointStore:
                         checkpoint.completion_tokens,
                         checkpoint.status,
                         checkpoint.prompt or "",
+                        checkpoint.my_generation,
                         checkpoint.created_at,
                         checkpoint.expires_at,
                     ),
@@ -98,6 +100,7 @@ class TurnCheckpointStore:
 
     def _row_to_checkpoint(self, row: Any) -> TurnCheckpoint:
         row_keys = row.keys() if hasattr(row, "keys") else ()
+        raw_gen = row["my_generation"] if "my_generation" in row_keys else None
         return TurnCheckpoint(
             checkpoint_id=row["checkpoint_id"],
             session_id=row["session_id"],
@@ -116,6 +119,7 @@ class TurnCheckpointStore:
             completion_tokens=int(row["completion_tokens"] or 0),
             status=row["status"],
             prompt=str(row["prompt"] or "") if "prompt" in row_keys else "",
+            my_generation=int(raw_gen) if raw_gen is not None else None,
             created_at=float(row["created_at"]),
             expires_at=float(row["expires_at"]),
         )
@@ -154,30 +158,30 @@ class TurnCheckpointStore:
         return None
 
     def get_latest_checkpoint_for_thread(
-        self, channel_id: str, thread_ts: str, status: str | None = None
+        self,
+        channel_id: str,
+        thread_ts: str,
+        status: str | None = None,
+        pause_reason: str | None = None,
     ) -> TurnCheckpoint | None:
-        """Retrieves the latest checkpoint for a given thread."""
+        """Retrieves the latest checkpoint for a given thread, optionally filtered by status and pause_reason."""
         now = time.time()
         try:
             with get_connection() as conn:
+                clauses = ["channel_id = ?", "thread_ts = ?"]
+                params: list[Any] = [channel_id, thread_ts]
                 if status is not None:
-                    row = conn.execute(
-                        """
-                        SELECT * FROM turn_checkpoints
-                        WHERE channel_id = ? AND thread_ts = ? AND status = ? AND expires_at > ?
-                        ORDER BY created_at DESC LIMIT 1;
-                        """,
-                        (channel_id, thread_ts, status, now),
-                    ).fetchone()
+                    clauses.append("status = ?")
+                    params.append(status)
                 else:
-                    row = conn.execute(
-                        """
-                        SELECT * FROM turn_checkpoints
-                        WHERE channel_id = ? AND thread_ts = ? AND status IN ('PENDING', 'ACTIVE') AND expires_at > ?
-                        ORDER BY created_at DESC LIMIT 1;
-                        """,
-                        (channel_id, thread_ts, now),
-                    ).fetchone()
+                    clauses.append("status IN ('PENDING', 'ACTIVE')")
+                if pause_reason is not None:
+                    clauses.append("pause_reason = ?")
+                    params.append(pause_reason)
+                clauses.append("expires_at > ?")
+                params.append(now)
+                sql = f"SELECT * FROM turn_checkpoints WHERE {' AND '.join(clauses)} ORDER BY created_at DESC LIMIT 1;"
+                row = conn.execute(sql, tuple(params)).fetchone()
                 if row:
                     return self._row_to_checkpoint(row)
         except Exception as e:  # noqa: BLE001
@@ -205,6 +209,79 @@ class TurnCheckpointStore:
                 return cur.rowcount > 0
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed claiming checkpoint {checkpoint_id} for resume: {e}")
+            return False
+
+    def release_claim(self, checkpoint_id: str) -> bool:
+        """
+        Reverts a RESUMING checkpoint back to ACTIVE without redacting payloads so
+        graceful shutdown cancellation can safely resume later.
+        """
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE turn_checkpoints
+                    SET status = 'ACTIVE'
+                    WHERE checkpoint_id = ? AND status = 'RESUMING';
+                    """,
+                    (checkpoint_id,),
+                )
+                return cur.rowcount > 0
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[CHECKPOINT] Failed releasing claim for {checkpoint_id}: {e}")
+            return False
+
+    def update_messages(
+        self,
+        checkpoint_id: str,
+        messages: list[dict[str, Any]],
+        token_mapping: dict[str, Any] | None = None,
+    ) -> bool:
+        """Persists updated messages (and optional token_mapping) on an active or resuming checkpoint."""
+        try:
+            messages_json = json.dumps(messages, default=str)
+            with get_db_transaction(immediate=True) as conn:
+                if token_mapping is not None:
+                    cur = conn.execute(
+                        """
+                        UPDATE turn_checkpoints
+                        SET messages_json = ?, token_mapping_json = ?
+                        WHERE checkpoint_id = ? AND status IN ('PENDING', 'ACTIVE', 'RESUMING');
+                        """,
+                        (messages_json, json.dumps(token_mapping, default=str), checkpoint_id),
+                    )
+                else:
+                    cur = conn.execute(
+                        """
+                        UPDATE turn_checkpoints
+                        SET messages_json = ?
+                        WHERE checkpoint_id = ? AND status IN ('PENDING', 'ACTIVE', 'RESUMING');
+                        """,
+                        (messages_json, checkpoint_id),
+                    )
+                return cur.rowcount > 0
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[CHECKPOINT] Failed updating messages for {checkpoint_id}: {e}")
+            return False
+
+    def update_accumulated_history(
+        self, checkpoint_id: str, accumulated_history: list[dict[str, Any]]
+    ) -> bool:
+        """Persists reduced sibling accumulated_history onto a paused checkpoint."""
+        try:
+            history_json = json.dumps(accumulated_history, default=str)
+            with get_db_transaction(immediate=True) as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE turn_checkpoints
+                    SET accumulated_history_json = ?
+                    WHERE checkpoint_id = ? AND status IN ('PENDING', 'ACTIVE');
+                    """,
+                    (history_json, checkpoint_id),
+                )
+                return cur.rowcount > 0
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[CHECKPOINT] Failed updating accumulated_history for {checkpoint_id}: {e}")
             return False
 
     def mark_resumed(self, checkpoint_id: str) -> bool:
@@ -278,6 +355,44 @@ class TurnCheckpointStore:
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed marking abandoned {checkpoint_id}: {e}")
             return False
+
+    def has_active_checkpoint(self, channel_id: str, thread_ts: str) -> bool:
+        """Returns True if any unexpired PENDING/ACTIVE/RESUMING checkpoint exists for the thread."""
+        now = time.time()
+        try:
+            with get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT 1 FROM turn_checkpoints
+                    WHERE channel_id = ? AND thread_ts = ?
+                      AND status IN ('PENDING', 'ACTIVE', 'RESUMING')
+                      AND expires_at > ?
+                    LIMIT 1;
+                    """,
+                    (channel_id, thread_ts, now),
+                ).fetchone()
+                return row is not None
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[CHECKPOINT] Failed checking active checkpoint for {channel_id}:{thread_ts}: {e}")
+            return False
+
+    def abandon_thread_checkpoints(self, channel_id: str, thread_ts: str) -> int:
+        """Marks all PENDING/ACTIVE checkpoints for a thread as ABANDONED and redacts payloads."""
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE turn_checkpoints
+                    SET status = 'ABANDONED', messages_json = '[]', accumulated_history_json = '[]',
+                        pending_tool_call_json = '{}', token_mapping_json = '{}', prompt = ''
+                    WHERE channel_id = ? AND thread_ts = ? AND status IN ('PENDING', 'ACTIVE');
+                    """,
+                    (channel_id, thread_ts),
+                )
+                return cur.rowcount
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[CHECKPOINT] Failed abandoning thread checkpoints for {channel_id}:{thread_ts}: {e}")
+            return 0
 
     def prune_expired(self) -> int:
         """Prunes checkpoints whose expiration timestamp has passed."""

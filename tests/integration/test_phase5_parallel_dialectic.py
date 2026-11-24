@@ -7,6 +7,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import patch
 
+import pytest
+
 
 from core.models import (
     REQUIRED_DEFAULT_WORKFLOW_IDS,
@@ -277,6 +279,141 @@ def test_isolated_branch_skips_revisor_and_preserves_queue_and_multiround_histor
     try:
         asyncio.run(_run())
     finally:
+        set_orchestration_mode(orig_mode, save=False)
+        if orig_sandwich:
+            set_sandwich_config(orig_sandwich.get("start_chain", []), orig_sandwich.get("end_chain", []), save=False)
+        thread_state_manager.cleanup_thread(ch, ts)
+
+
+@pytest.mark.anyio
+async def test_scatter_gather_two_rounds_through_real_turn_pipeline_and_partial_hitl_pause():
+    """
+    TKT-1405 (CB-03, CB-04):
+    1. Multi-round (/rounds 2) Scatter-Gather through real process_and_respond / TurnPipeline decrements rounds
+       once per cycle (not twice) so Round 1 AND Round 2 both execute cleanly.
+    2. When SpecA completes while SpecB pauses on HITL during scatter phase, SpecA's output is reduced into
+       accumulated_history & pruned from remaining_agents before returning, and saved onto SpecB's checkpoint.
+    """
+    from unittest.mock import MagicMock, AsyncMock
+    from config_store.agent_settings import settings_manager
+    from core.llm_utils import configure_llm_completion_fn, reset_llm_completion_fn
+    from orchestration.agent_router import configure_router_deps, configure_router_sleep_fn, process_and_respond, reset_router_deps, reset_router_sleep_fn
+    from orchestration.discussion_loop import DiscussionLoop
+    from orchestration.protocols import PipelineDeps
+    from orchestration.thread_state import thread_state_manager
+    from services.slack.messages import configure_post_agent_response, reset_post_agent_response
+    from services.turn_checkpoint_store import turn_checkpoint_store
+
+    ch = "C_SG_REAL"
+    ts = "1700009999.0001"
+    orig_mode = get_orchestration_mode()
+    orig_sandwich = get_sandwich_config()
+    thread_state_manager.cleanup_thread(ch, ts)
+
+    async def _noop_sleep(_sec: float) -> None:
+        return None
+
+    try:
+        set_orchestration_mode("scatter_gather", save=False)
+        set_sandwich_config(["agent-10001"], ["agent-10006"], save=False)
+        thread_state_manager.set_rounds(ch, ts, 2)
+        thread_state_manager.set_round_sequence(
+            ch, ts, ["agent-10001", "agent-10002", "agent-10003", "agent-10006"]
+        )
+        thread_state_manager.set_remaining_agents(
+            ch, ts, ["agent-10001", "agent-10002", "agent-10003", "agent-10006"]
+        )
+
+        synth_username = (settings_manager.get_agent("agent-10006") or {}).get("username") or "agent-10006"
+        posted_usernames: list[str] = []
+
+        async def _capture_slack_post(channel_id, thread_ts, text, username, icon_url=None, blocks=None):
+            posted_usernames.append(username)
+            return {"ok": True, "ts": f"999.{len(posted_usernames)}"}
+
+        async def _mock_llm(*args, **kwargs):
+            return MagicMock(
+                choices=[MagicMock(message=MagicMock(content="Scatter-gather turn contribution.", tool_calls=None))],
+                usage=None,
+            )
+
+        deps = PipelineDeps(
+            slack_poster=_capture_slack_post,
+            history_fetcher=AsyncMock(return_value=[]),
+            files_fetcher=AsyncMock(return_value=[]),
+            debate_turn_pacing_seconds=0.0,
+            slack_post_pause_seconds=0.0,
+            sleep_fn=_noop_sleep,
+            token_recorder=lambda **kw: None,
+            notes_updater=lambda **kw: None,
+            usage_updater=lambda **kw: None,
+        )
+        configure_llm_completion_fn(_mock_llm)
+        configure_post_agent_response(_capture_slack_post)
+        configure_router_deps(deps)
+        configure_router_sleep_fn(_noop_sleep)
+
+        loop = DiscussionLoop(turn_executor=process_and_respond, sleep_fn=_noop_sleep)
+        res = await loop.run(channel_id=ch, thread_ts=ts, initial_raw_text="Analyze 2-round topology")
+        assert isinstance(res, dict) and res.get("ok") is True
+        # Two full rounds executed (single-authority decrement_rounds ran once per cycle, so synth ran twice)
+        assert posted_usernames.count(synth_username) == 2
+        assert thread_state_manager.get_rounds(ch, ts) == 0
+        assert thread_state_manager.get_remaining_agents(ch, ts) == []
+
+        # Part 2: CB-03 — Partial scatter branch completes while sibling pauses on HITL
+        ch_p = "C_SG_PAUSE"
+        ts_p = "1700009999.0002"
+        thread_state_manager.cleanup_thread(ch_p, ts_p)
+        set_sandwich_config(["agent-10001"], ["agent-10006"], save=False)
+        thread_state_manager.set_remaining_agents(
+            ch_p, ts_p, ["agent-10001", "agent-10002", "agent-10003", "agent-10006"]
+        )
+
+        # Register dummy HITL checkpoint for agent-10003 via mocked scatter executor
+        from core.domain import TurnCheckpoint
+
+        chk = TurnCheckpoint(
+            checkpoint_id="chk_sg_branch",
+            session_id=f"{ch_p}:{ts_p}",
+            channel_id=ch_p,
+            thread_ts=ts_p,
+            agent_key="agent-10003",
+            pause_reason="hitl",
+            messages=[{"role": "user", "content": "Need approval"}],
+        )
+        turn_checkpoint_store.save_checkpoint(chk)
+
+        async def _scatter_pause_exec(**kwargs):
+            target = kwargs.get("target_agent_override") or "agent-10001"
+            if target == "agent-10001":
+                return {"ok": True, "agent_key": "agent-10001", "displayname": "Architect", "final_text": "Frame"}
+            if target == "agent-10002":
+                return {"ok": True, "agent_key": "agent-10002", "displayname": "Tactician", "final_text": "Completed SpecA work"}
+            if target == "agent-10003":
+                return {
+                    "ok": True,
+                    "agent_key": "agent-10003",
+                    "waiting_hitl": True,
+                    "halted": True,
+                    "checkpoint_id": "chk_sg_branch",
+                    "final_text": "Paused for approval",
+                }
+            return {"ok": True, "agent_key": target, "final_text": "Done"}
+
+        loop2 = DiscussionLoop(turn_executor=_scatter_pause_exec, sleep_fn=_noop_sleep)
+        pause_res = await loop2.run(channel_id=ch_p, thread_ts=ts_p, initial_raw_text="Topic")
+        assert pause_res.get("waiting_hitl") is True
+        # Completed SpecA pruned; paused SpecB has checkpoint so only Synth remains
+        assert thread_state_manager.get_remaining_agents(ch_p, ts_p) == ["agent-10006"]
+        saved_chk = turn_checkpoint_store.get_checkpoint("chk_sg_branch")
+        assert saved_chk is not None
+        assert any("Completed SpecA work" in str(m.get("content", "")) for m in saved_chk.accumulated_history)
+    finally:
+        reset_llm_completion_fn()
+        reset_post_agent_response()
+        reset_router_deps()
+        reset_router_sleep_fn()
         set_orchestration_mode(orig_mode, save=False)
         if orig_sandwich:
             set_sandwich_config(orig_sandwich.get("start_chain", []), orig_sandwich.get("end_chain", []), save=False)

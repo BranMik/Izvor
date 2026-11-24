@@ -3,6 +3,7 @@ from collections.abc import Callable
 import json
 import logging
 import random
+import sqlite3
 import time
 from typing import Any, TypeVar
 
@@ -145,6 +146,12 @@ class DiscussionStateStore:
                         ),
                     )
                 return result
+        except sqlite3.Error as e:
+            logger.error(
+                f"[DISCUSSION STORE] SQLite error updating session in DB for ({channel_id}, {thread_ts}): {e}",
+                exc_info=True,
+            )
+            raise
         except Exception as e:  # noqa: BLE001
             logger.error(
                 f"[DISCUSSION STORE] Failed to update session in DB for ({channel_id}, {thread_ts}): {e}",
@@ -294,16 +301,21 @@ class DiscussionStateStore:
             self.active_thread_tasks.pop(thread_key, None)
 
     def cancel_active_task(
-        self, channel_id: str, thread_ts: str
+        self,
+        channel_id: str,
+        thread_ts: str,
+        *,
+        skip_task: asyncio.Task[Any] | None = None,
     ) -> asyncio.Task | None:
-        """Cancels and pops active task if running and not the current asyncio task."""
+        """Cancels and pops active task if running and not the current/skipped asyncio task."""
+        from core.task_utils import safe_cancel_task
+
         thread_key = (channel_id, thread_ts)
         task = self.active_thread_tasks.pop(thread_key, None)
-        if task and not task.done() and task is not asyncio.current_task():
+        if safe_cancel_task(task, skip_task=skip_task):
             logger.info(
                 f"[DISCUSSION STORE] Cancelling active background task for thread {thread_key}"
             )
-            task.cancel()
         return task
 
     def is_custom_flow(self, channel_id: str, thread_ts: str) -> bool:
@@ -518,9 +530,15 @@ class DiscussionStateStore:
         """Clears the convergence speaker streak for this thread in memory and SQLite."""
         self._update_fields(channel_id, thread_ts, convergence_speakers="[]")
 
-    def clear_thread(self, channel_id: str, thread_ts: str) -> None:
+    def clear_thread(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        *,
+        skip_task: asyncio.Task[Any] | None = None,
+    ) -> None:
         """Purges discussion state for this thread in a single atomic operation."""
-        self.cancel_active_task(channel_id, thread_ts)
+        self.cancel_active_task(channel_id, thread_ts, skip_task=skip_task)
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute(

@@ -57,6 +57,8 @@ class TurnInput:
     in_memory_history: tuple[dict[str, Any], ...] | None = None
     target_agent_override: str | None = None
     isolated_branch: bool = False
+    defer_round_decrement: bool = False
+    force_termination_override: bool = False
     my_generation: int = 0
     start_time: float = field(default_factory=time.time)
 
@@ -192,6 +194,8 @@ class TurnContext:
         in_memory_history: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
         target_agent_override: str | None = None,
         isolated_branch: bool = False,
+        defer_round_decrement: bool = False,
+        force_termination_override: bool = False,
         my_generation: int = 0,
         start_time: float | None = None,
         input: TurnInput | None = None,
@@ -216,6 +220,8 @@ class TurnContext:
                 in_memory_history=hist_tuple,
                 target_agent_override=target_agent_override,
                 isolated_branch=isolated_branch,
+                defer_round_decrement=defer_round_decrement,
+                force_termination_override=force_termination_override,
                 my_generation=my_generation,
                 start_time=start_time or time.time(),
             )
@@ -273,7 +279,9 @@ class TurnContext:
         self.remaining: list[str] = list(kwargs.get("remaining", []))
         self.is_custom_flow: bool = kwargs.get("is_custom_flow", False)
         self.is_open_debate: bool = kwargs.get("is_open_debate", False)
-        self.force_termination: bool = kwargs.get("force_termination", False)
+        self.force_termination: bool = bool(
+            kwargs.get("force_termination", False) or self.input.force_termination_override
+        )
         self.eligible_remaining_agents: list[str] = list(kwargs.get("eligible_remaining_agents", []))
         self.next_designated_agent: str | None = kwargs.get("next_designated_agent")
         self.target_agent_override: str | None = kwargs.get("target_agent_override", self.input.target_agent_override)
@@ -453,15 +461,16 @@ class TurnPipeline:
             # Stage 1: Validate input, parse directives & resolve candidate agents
             t0 = time.time()
             halt = await self.validation_stage.stage_validate_and_parse(ctx)
-            record_turn_trace(
-                session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
-                channel_id=ctx.input.channel_id,
-                thread_ts=ctx.input.thread_ts,
-                agent_key=ctx.agent_key or "unknown",
-                stage_name="validation",
-                duration_ms=(time.time() - t0) * 1000.0,
-                status="HALTED" if halt else "SUCCESS",
-            )
+            if not (isinstance(halt, dict) and halt.get("action") == "forget_thread"):
+                record_turn_trace(
+                    session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
+                    agent_key=ctx.agent_key or "unknown",
+                    stage_name="validation",
+                    duration_ms=(time.time() - t0) * 1000.0,
+                    status="HALTED" if halt else "SUCCESS",
+                )
             if halt:
                 return halt
 
@@ -587,6 +596,23 @@ class TurnPipeline:
                 f"[CHECKPOINT] Checkpoint '{chk.checkpoint_id}' already claimed or expired; skipping duplicate resume."
             )
             return {"ok": False, "halted": True, "reason": "checkpoint_already_claimed"}
+
+        if thread_state_manager.is_stopped(chk.channel_id, chk.thread_ts):
+            logger.info(
+                f"[CHECKPOINT] Thread {chk.channel_id}:{chk.thread_ts} was stopped; abandoning checkpoint '{chk.checkpoint_id}'."
+            )
+            turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
+            return {"ok": False, "cancelled": True, "reason": "stopped"}
+
+        current_gen = thread_state_manager.get_generation(chk.channel_id, chk.thread_ts)
+        chk_gen = getattr(chk, "my_generation", None)
+        if chk_gen is not None and chk_gen != current_gen:
+            logger.info(
+                f"[CHECKPOINT] Checkpoint '{chk.checkpoint_id}' generation ({chk_gen}) "
+                f"is superseded by thread generation ({current_gen}). Aborting resume."
+            )
+            turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         reset_turn_web_budget()
 
@@ -735,6 +761,11 @@ class TurnPipeline:
                             "content": tool_result_str,
                         }
                     )
+                turn_checkpoint_store.update_messages(
+                    chk.checkpoint_id,
+                    ctx.messages,
+                    token_mapping=ctx.turn_token_mapping,
+                )
 
             expired_thread_skills = list(
                 dict.fromkeys(
@@ -756,7 +787,10 @@ class TurnPipeline:
                 allow_503_immediate=False,
             )
             if halt is not None:
-                turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
+                if isinstance(halt, dict) and (halt.get("waiting_hitl") or halt.get("circuit_breaker_triggered")):
+                    turn_checkpoint_store.mark_resolved(chk.checkpoint_id)
+                else:
+                    turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
                 return halt
 
             slack_res = await self.post_record_stage.stage_post_and_record(ctx)
@@ -768,7 +802,12 @@ class TurnPipeline:
             turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
             return slack_res
         except asyncio.CancelledError:
-            turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
+            if ctx is not None and (
+                ctx.is_superseded() or thread_state_manager.is_stopped(chk.channel_id, chk.thread_ts)
+            ):
+                turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
+            else:
+                turn_checkpoint_store.release_claim(chk.checkpoint_id)
             raise
         except Exception as exc:  # noqa: BLE001
             turn_checkpoint_store.mark_failed_resume(chk.checkpoint_id)

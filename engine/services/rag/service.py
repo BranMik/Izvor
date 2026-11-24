@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 
 from .config import DEFAULT_TOP_K
@@ -82,7 +83,7 @@ class RAGService:
             )
         except Exception as e:  # noqa: BLE001
             logger.error(f"[RAG Service] Search execution failed: {e}")
-            return f"Error executing knowledge base search: {e}"
+            return json.dumps({"isError": True, "error": f"Knowledge base search failed: {e}"})
 
         if not results:
             scope_desc = (

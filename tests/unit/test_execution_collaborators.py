@@ -59,14 +59,43 @@ def test_control_plane_handler_applies_nomination_and_clarification():
     assert ctx2.control.nomination is None
 
     # Clarification halts turn
-    handler.apply_tool_effect(
+    err_none = handler.apply_tool_effect(
         fn_name="request_user_clarification",
         fn_args={"question": "Which region?"},
         ctx=ctx2,
     )
+    assert err_none is None
     assert ctx2.control.clarification_requested is True
     assert ctx2.control.clarification_question == "Which region?"
     assert ctx2.output.halted is True
+
+    # Empty clarification & ineligible speaker are rejected (CB-11)
+    ctx3 = TurnContext(channel_id="C_CP", thread_ts="100.3", raw_text="Discuss")
+    ctx3.agent_key = "agent-10001"
+    ctx3.eligible_remaining_agents = ["agent-10002"]
+    bad_clar = handler.apply_tool_effect(
+        fn_name="request_user_clarification",
+        fn_args={"question": "   "},
+        ctx=ctx3,
+    )
+    assert bad_clar is not None and '"isError": true' in bad_clar
+    assert ctx3.control.clarification_requested is False
+    assert ctx3.output.halted is False
+
+    bad_nom = handler.apply_tool_effect(
+        fn_name="nominate_next_speaker",
+        fn_args={"agent_name": "agent-99999", "rationale": "Who?"},
+        ctx=ctx3,
+    )
+    assert bad_nom is not None and '"isError": true' in bad_nom
+    assert ctx3.control.nomination is None
+
+    # _is_tool_error handles 4-key MCP error JSON, indent=2 JSON, >300 char JSON, and RAGService errors
+    from orchestration.stages.tool_loop_runner import _is_tool_error
+
+    assert _is_tool_error('{"server": "db", "tool": "q", "error": "boom", "isError": true}') is True
+    assert _is_tool_error('{\n  "error": "' + ("z" * 350) + '"\n}') is True
+    assert _is_tool_error("Error executing knowledge base search: broken") is True
 
 
 @pytest.mark.anyio
@@ -100,6 +129,24 @@ async def test_turn_finalizer_runs_tool_free_synthesis_when_timed_out_with_evide
 
     kwargs = build_completion_kwargs(model="openai/gpt-4o", messages=[{"role": "user", "content": "hi"}])
     assert kwargs["model"] == "openai/gpt-4o"
+
+    # Bounded synthesis timeout fallback (TKT-1411)
+    ctx_err = TurnContext(channel_id="C_FIN", thread_ts="200.2", raw_text="Summarize")
+    ctx_err.agent_key = "agent-10001"
+    ctx_err.agent_cfg = {"model": "gemini/gemini-3.8-flash"}
+    ctx_err.messages = [{"role": "user", "content": "Summarize"}]
+    ctx_err.turn_token_mapping = {}
+    failing_finalizer = TurnFinalizer(PipelineDeps(llm_executor=AsyncMock(side_effect=TimeoutError("synth timeout"))))
+    await failing_finalizer.synthesize_if_needed(
+        ctx_err,
+        response_message=SimpleNamespace(content=""),
+        tool_calls=None,
+        timed_out_with_evidence=True,
+        iteration=1,
+        max_tool_iterations=3,
+        allow_503_immediate=False,
+    )
+    assert "unable to complete" in ctx_err.output.final_text.lower() or "timed out" in ctx_err.output.final_text.lower()
 
 
 def test_execution_stage_exposes_tool_loop_runner_properties():

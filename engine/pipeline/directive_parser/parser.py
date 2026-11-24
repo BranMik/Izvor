@@ -456,11 +456,16 @@ class DirectiveParser:
                 skill_registry = get_skill_registry()
 
                 file_skill = skill_registry.get_file_handler_skill()
-                if file_skill and not any(a.name == file_skill.name for a in actions):
+                if (
+                    file_skill
+                    and getattr(file_skill, "triggers", {}).get("auto_detect", True)
+                    and not any(a.name == file_skill.name for a in actions)
+                ):
                     actions.append(
                         ActionDirective(
                             name=file_skill.name,
                             params={"target_file": intent_file_target} if intent_file_target else {},
+                            origin="inferred",
                         )
                     )
 

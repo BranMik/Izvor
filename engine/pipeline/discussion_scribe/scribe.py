@@ -421,14 +421,30 @@ class DiscussionScribe:
         from core.model_catalog import resolve_model_with_fallback
 
         primary_model = resolve_model_with_fallback(self.model, log_context="SCRIBE").model
-        resp = await self._invoke_llm(messages, model=primary_model)
-        total_pt, total_ct = _extract_token_counts(resp) if resp else (0, 0)
-        choices = getattr(resp, "choices", None) if resp else None
-        choice = choices[0] if choices else None
-        msg = getattr(choice, "message", None) if choice is not None else None
-        raw_content = getattr(msg, "content", None) if msg is not None else None
-        text = raw_content.strip() if isinstance(raw_content, str) else ""
         used_model = primary_model
+        total_pt, total_ct = 0, 0
+        try:
+            resp = await self._invoke_llm(messages, model=primary_model)
+            total_pt, total_ct = _extract_token_counts(resp) if resp else (0, 0)
+            choices = getattr(resp, "choices", None) if resp else None
+            choice = choices[0] if choices else None
+            msg = getattr(choice, "message", None) if choice is not None else None
+            raw_content = getattr(msg, "content", None) if msg is not None else None
+            text = raw_content.strip() if isinstance(raw_content, str) else ""
+        except (TimeoutError, asyncio.TimeoutError) as err:
+            logger.error(f"[SCRIBE] Timeout generating {label}: {err}")
+            return (
+                f"*({unavailable_noun} unavailable: request timed out)*",
+                {"prompt_tokens": total_pt, "completion_tokens": total_ct, "model": used_model},
+                False,
+            )
+        except Exception as err:  # noqa: BLE001
+            logger.error(f"[SCRIBE] Error generating {label}: {err}")
+            return (
+                f"*({unavailable_noun} unavailable: {err})*",
+                {"prompt_tokens": total_pt, "completion_tokens": total_ct, "model": used_model},
+                False,
+            )
 
         if not text:
             finish_reason_raw = getattr(choice, "finish_reason", None) if choice is not None else None
@@ -444,6 +460,15 @@ class DiscussionScribe:
             )
             try:
                 retry_resp = await self._invoke_llm(messages, model=fallback_model)
+                retry_pt, retry_ct = _extract_token_counts(retry_resp) if retry_resp else (0, 0)
+                total_pt += retry_pt
+                total_ct += retry_ct
+                retry_choices = getattr(retry_resp, "choices", None) if retry_resp else None
+                retry_choice = retry_choices[0] if retry_choices else None
+                retry_msg = getattr(retry_choice, "message", None) if retry_choice is not None else None
+                retry_content = getattr(retry_msg, "content", None) if retry_msg is not None else None
+                text = retry_content.strip() if isinstance(retry_content, str) else ""
+                used_model = fallback_model
             except Exception as retry_err:  # noqa: BLE001
                 logger.warning(f"[SCRIBE] Fallback model '{fallback_model}' failed for {label}: {retry_err}")
                 return (
@@ -452,15 +477,6 @@ class DiscussionScribe:
                     False,
                 )
 
-            retry_pt, retry_ct = _extract_token_counts(retry_resp) if retry_resp else (0, 0)
-            total_pt += retry_pt
-            total_ct += retry_ct
-            retry_choices = getattr(retry_resp, "choices", None) if retry_resp else None
-            retry_choice = retry_choices[0] if retry_choices else None
-            retry_msg = getattr(retry_choice, "message", None) if retry_choice is not None else None
-            retry_content = getattr(retry_msg, "content", None) if retry_msg is not None else None
-            text = retry_content.strip() if isinstance(retry_content, str) else ""
-            used_model = fallback_model
             if not text:
                 retry_fr_raw = getattr(retry_choice, "finish_reason", None) if retry_choice is not None else None
                 retry_fr = retry_fr_raw if isinstance(retry_fr_raw, str) else "unknown"

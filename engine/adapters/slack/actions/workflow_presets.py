@@ -82,16 +82,24 @@ async def _handle_select_workflow_preset(
     if val.startswith("wf:"):
         wf_id = val.split(":", 1)[1]
         if wf_id and wf_id != "none":
-            apply_workflow(wf_id)
+            applied = bool(apply_workflow(wf_id))
             actor_type = "slack_admin" if is_slack_admin(user_id) else "slack_user"
             await log_audit_event_async(
                 event_type="WORKFLOW_PRESET_MUTATION",
                 actor={"type": actor_type, "id": user_id or "unknown"},
                 action="apply_workflow_preset",
                 target=f"workflow:{wf_id}",
-                details={"workflow_id": wf_id},
-                severity="INFO",
+                details={"workflow_id": wf_id, "applied": applied},
+                severity="INFO" if applied else "WARNING",
+                status="SUCCESS" if applied else "FAILURE",
             )
+            if not applied and user_id:
+                dm_id = await open_dm_channel(user_id)
+                if dm_id:
+                    await post_message_to_slack(
+                        channel_id=dm_id,
+                        text=f"⚠️ *Failed to apply workflow preset `{wf_id}`.* It may be missing or corrupted.",
+                    )
     return None
 
 
@@ -104,16 +112,24 @@ async def _handle_load_workflow_preset_button(
 ) -> Response | None:
     selected_wf_id = _extract_selected_preset_id(view_state)
     if selected_wf_id and selected_wf_id != "none":
-        apply_workflow(selected_wf_id)
+        applied = bool(apply_workflow(selected_wf_id))
         actor_type = "slack_admin" if is_slack_admin(user_id) else "slack_user"
         await log_audit_event_async(
             event_type="WORKFLOW_PRESET_MUTATION",
             actor={"type": actor_type, "id": user_id or "unknown"},
             action="apply_workflow_preset",
             target=f"workflow:{selected_wf_id}",
-            details={"workflow_id": selected_wf_id},
-            severity="INFO",
+            details={"workflow_id": selected_wf_id, "applied": applied},
+            severity="INFO" if applied else "WARNING",
+            status="SUCCESS" if applied else "FAILURE",
         )
+        if not applied and user_id:
+            dm_id = await open_dm_channel(user_id)
+            if dm_id:
+                await post_message_to_slack(
+                    channel_id=dm_id,
+                    text=f"⚠️ *Failed to load workflow preset `{selected_wf_id}`.* It may be missing or corrupted.",
+                )
     return None
 
 
@@ -130,16 +146,17 @@ async def _handle_delete_workflow_preset_button(
             logger.warning(f"[WORKFLOW] Cannot delete default system preset '{selected_wf_id}'")
             return None
 
-        delete_workflow(selected_wf_id)
-        if get_active_workflow_id() == selected_wf_id:
+        deleted = bool(delete_workflow(selected_wf_id))
+        if deleted and get_active_workflow_id() == selected_wf_id:
             set_active_workflow_id(None)
         await log_audit_event_async(
             event_type="WORKFLOW_PRESET_MUTATION",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="delete_workflow_preset",
             target=f"workflow:{selected_wf_id}",
-            details={"workflow_id": selected_wf_id},
-            severity="INFO",
+            details={"workflow_id": selected_wf_id, "deleted": deleted},
+            severity="INFO" if deleted else "WARNING",
+            status="SUCCESS" if deleted else "FAILURE",
         )
     return None
 
@@ -167,48 +184,61 @@ async def _handle_save_workflow_preset_button(
         return None
 
     mode = get_orchestration_mode()
-    if mode == OrchestrationMode.FIXED.value and isinstance(view_state, dict):
-        for block_val in view_state.values():
-            if isinstance(block_val, dict) and "set_fixed_chain_input" in block_val:
-                f_val = block_val["set_fixed_chain_input"].get("value")
-                if f_val is not None:
-                    f_chain, invalid_f = _validate_chain_agent_keys(f_val)
-                    if invalid_f:
-                        logger.warning(f"[INTERACTIVITY] Unknown fixed chain agent keys rejected: {invalid_f}")
-                    set_fixed_config(f_chain)
-                    break
-    elif mode in (OrchestrationMode.SANDWICH.value, OrchestrationMode.SCATTER_GATHER.value) and isinstance(
-        view_state, dict
-    ):
-        s_val = None
-        e_val = None
-        for block_val in view_state.values():
-            if isinstance(block_val, dict):
-                if "set_start_chain_input" in block_val:
-                    s_val = block_val["set_start_chain_input"].get("value")
-                if "set_end_chain_input" in block_val:
-                    e_val = block_val["set_end_chain_input"].get("value")
-        if s_val is not None or e_val is not None:
-            curr_sandwich = get_sandwich_config()
-            start_chain = (
-                _validate_chain_agent_keys(s_val)[0] if s_val is not None else curr_sandwich.get("start_chain", [])
-            )
-            end_chain = _validate_chain_agent_keys(e_val)[0] if e_val is not None else curr_sandwich.get("end_chain", [])
-            set_sandwich_config(start_chain, end_chain)
+    proposed_fixed: dict[str, Any] | None = None
+    proposed_sandwich: dict[str, Any] | None = None
+
+    if mode == OrchestrationMode.FIXED.value:
+        proposed_fixed = dict(get_fixed_config())
+        if isinstance(view_state, dict):
+            for block_val in view_state.values():
+                if isinstance(block_val, dict) and "set_fixed_chain_input" in block_val:
+                    f_val = block_val["set_fixed_chain_input"].get("value")
+                    if f_val is not None:
+                        f_chain, invalid_f = _validate_chain_agent_keys(f_val)
+                        if invalid_f:
+                            logger.warning(f"[INTERACTIVITY] Unknown fixed chain agent keys rejected: {invalid_f}")
+                        proposed_fixed = {"chain": f_chain}
+                        break
+    else:
+        curr_sandwich = get_sandwich_config()
+        start_chain = list(curr_sandwich.get("start_chain", []))
+        end_chain = list(curr_sandwich.get("end_chain", []))
+        if isinstance(view_state, dict):
+            s_val = None
+            e_val = None
+            for block_val in view_state.values():
+                if isinstance(block_val, dict):
+                    if "set_start_chain_input" in block_val:
+                        s_val = block_val["set_start_chain_input"].get("value")
+                    if "set_end_chain_input" in block_val:
+                        e_val = block_val["set_end_chain_input"].get("value")
+            if s_val is not None:
+                start_chain = _validate_chain_agent_keys(s_val)[0]
+            if e_val is not None:
+                end_chain = _validate_chain_agent_keys(e_val)[0]
+        proposed_sandwich = {"start_chain": start_chain, "end_chain": end_chain}
 
     try:
+        # Validate & persist preset BEFORE mutating active chains/active_workflow_id in RAM/agent_settings
         if mode == OrchestrationMode.FIXED.value:
             saved = save_workflow(
                 name=preset_name,
                 mode=mode,
-                fixed_config=get_fixed_config(),
+                fixed_config=proposed_fixed,
             )
+            if proposed_fixed is not None:
+                set_fixed_config(proposed_fixed.get("chain", []))
         else:
             saved = save_workflow(
                 name=preset_name,
                 mode=mode,
-                sandwich_config=get_sandwich_config(),
+                sandwich_config=proposed_sandwich,
             )
+            if proposed_sandwich is not None:
+                set_sandwich_config(
+                    proposed_sandwich.get("start_chain", []),
+                    proposed_sandwich.get("end_chain", []),
+                )
         set_active_workflow_id(saved.id)
         await log_audit_event_async(
             event_type="WORKFLOW_PRESET_MUTATION",
@@ -217,9 +247,19 @@ async def _handle_save_workflow_preset_button(
             target=f"workflow:{saved.id}",
             details={"name": preset_name, "mode": mode, "workflow_id": saved.id},
             severity="INFO",
+            status="SUCCESS",
         )
-    except ValueError as ve:
+    except (ValueError, OSError) as ve:
         logger.warning(f"[WORKFLOW] Cannot save preset '{preset_name}': {ve}")
+        await log_audit_event_async(
+            event_type="WORKFLOW_PRESET_MUTATION",
+            actor={"type": "slack_admin", "id": user_id or "unknown"},
+            action="save_workflow_preset",
+            target=f"workflow:{preset_name}",
+            details={"name": preset_name, "mode": mode, "error": str(ve)},
+            severity="WARNING",
+            status="FAILURE",
+        )
         if user_id:
             dm_id = await open_dm_channel(user_id)
             if dm_id:
@@ -256,6 +296,39 @@ async def _handle_select_orchestration_mode(
     return None
 
 
+async def _reject_if_reserved_preset(
+    user_id: str | None,
+    *,
+    action_name: str,
+    target: str,
+) -> bool:
+    """Blocks in-place chain mutations when a reserved system default preset is active."""
+    active_wf = get_active_workflow_id()
+    if active_wf and active_wf in REQUIRED_DEFAULT_WORKFLOW_IDS:
+        logger.warning(f"[WORKFLOW] Blocked in-place chain mutation '{action_name}' on reserved preset '{active_wf}'")
+        await log_audit_event_async(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": user_id or "unknown"},
+            action=action_name,
+            target=target,
+            details={"workflow_id": active_wf, "reason": "reserved_default_preset"},
+            severity="WARNING",
+            status="BLOCKED",
+        )
+        if user_id:
+            dm_id = await open_dm_channel(user_id)
+            if dm_id:
+                await post_message_to_slack(
+                    channel_id=dm_id,
+                    text=(
+                        f"⚠️ *System default preset `{active_wf}` is read-only.* "
+                        "Use *Save Preset* to create a custom preset with modified chains."
+                    ),
+                )
+        return True
+    return False
+
+
 async def _handle_save_sandwich_chains_button(
     action: dict[str, Any],
     payload: dict[str, Any],
@@ -263,6 +336,10 @@ async def _handle_save_sandwich_chains_button(
     background_tasks: BackgroundTasks,
     view_state: dict[str, Any],
 ) -> Response | None:
+    if await _reject_if_reserved_preset(
+        user_id, action_name="save_sandwich_chains_button", target="orchestration.sandwich_config"
+    ):
+        return None
     start_val = ""
     end_val = ""
     if isinstance(view_state, dict):
@@ -280,14 +357,20 @@ async def _handle_save_sandwich_chains_button(
             f"start_invalid={start_invalid}, end_invalid={end_invalid}"
         )
     set_sandwich_config(start_valid, end_valid)
-    persist_active_workflow()
+    persisted = bool(persist_active_workflow())
     await log_audit_event_async(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="save_sandwich_chains_button",
         target="orchestration.sandwich_config",
-        details={"start_chain": start_valid, "end_chain": end_valid, "invalid_keys": start_invalid + end_invalid},
+        details={
+            "start_chain": start_valid,
+            "end_chain": end_valid,
+            "invalid_keys": start_invalid + end_invalid,
+            "persisted": persisted,
+        },
         severity="INFO",
+        status="SUCCESS",
     )
     return None
 
@@ -299,6 +382,10 @@ async def _handle_clear_sandwich_chains_button(
     background_tasks: BackgroundTasks,
     view_state: dict[str, Any],
 ) -> Response | None:
+    if await _reject_if_reserved_preset(
+        user_id, action_name="clear_sandwich_chains_button", target="orchestration.sandwich_config"
+    ):
+        return None
     set_sandwich_config([], [])
     persist_active_workflow()
     await log_audit_event_async(
@@ -308,6 +395,7 @@ async def _handle_clear_sandwich_chains_button(
         target="orchestration.sandwich_config",
         details={"cleared": True},
         severity="INFO",
+        status="SUCCESS",
     )
     return None
 
@@ -367,6 +455,10 @@ async def _handle_save_fixed_chain_button(
     background_tasks: BackgroundTasks,
     view_state: dict[str, Any],
 ) -> Response | None:
+    if await _reject_if_reserved_preset(
+        user_id, action_name="save_fixed_chain_button", target="orchestration.fixed_config"
+    ):
+        return None
     fixed_val = ""
     if isinstance(view_state, dict):
         for block_val in view_state.values():
@@ -376,14 +468,15 @@ async def _handle_save_fixed_chain_button(
     if invalid:
         logger.warning(f"[INTERACTIVITY] Unknown agent keys rejected in fixed chain: {invalid}")
     set_fixed_config(valid)
-    persist_active_workflow()
+    persisted = bool(persist_active_workflow())
     await log_audit_event_async(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="save_fixed_chain_button",
         target="orchestration.fixed_config",
-        details={"fixed_chain": valid, "invalid_keys": invalid},
+        details={"fixed_chain": valid, "invalid_keys": invalid, "persisted": persisted},
         severity="INFO",
+        status="SUCCESS",
     )
     return None
 
@@ -395,6 +488,10 @@ async def _handle_clear_fixed_chain_button(
     background_tasks: BackgroundTasks,
     view_state: dict[str, Any],
 ) -> Response | None:
+    if await _reject_if_reserved_preset(
+        user_id, action_name="clear_fixed_chain_button", target="orchestration.fixed_config"
+    ):
+        return None
     set_fixed_config([])
     persist_active_workflow()
     await log_audit_event_async(
@@ -404,6 +501,7 @@ async def _handle_clear_fixed_chain_button(
         target="orchestration.fixed_config",
         details={"cleared": True},
         severity="INFO",
+        status="SUCCESS",
     )
     return None
 

@@ -569,3 +569,28 @@ async def test_thread_workflow_snapshot_isolates_inflight_discussion():
     finally:
         thread_state_manager.cleanup_thread(channel_id, thread_ts)
         apply_workflow("idea_architecture_feasibility_review")
+
+
+def test_agent_settings_save_rolls_back_raw_data_on_write_error(tmp_path: Path):
+    """TKT-1414: save() returns False and restores _raw_data if atomic write fails."""
+    class _FailingWriteSettingsManager(AgentSettingsManager):
+        fail_writes = False
+
+        def _atomic_write_json(self, file_path: Path, data: dict) -> None:
+            if self.fail_writes:
+                raise OSError("disk full")
+            super()._atomic_write_json(file_path, data)
+
+    settings_file = tmp_path / "settings.json"
+    wf_dir = tmp_path / "workflows"
+    mgr = _FailingWriteSettingsManager(settings_file=settings_file, auto_load=False, workflows_dir=wf_dir)
+    mgr.save()
+    original_raw = dict(mgr._raw_data)
+
+    mgr.workflow_config = "unsaved_new_wf"
+    mgr.fail_writes = True
+    ok = mgr.save()
+
+    assert ok is False
+    assert mgr._raw_data == original_raw
+    assert json.loads(settings_file.read_text(encoding="utf-8")) == original_raw

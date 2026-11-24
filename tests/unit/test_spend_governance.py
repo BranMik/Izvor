@@ -113,3 +113,32 @@ async def test_pricing_service_records_spend_to_spend_governance():
         assert row["prompt_tokens"] == 120
         assert row["completion_tokens"] == 40
         assert row["model_name"] == expected_model
+
+
+def test_circuit_breaker_fails_closed_on_sqlite_error():
+    """TKT-1410: Daily spend SQLite failure must fail closed rather than silently bypassing cap."""
+    import math
+    import sqlite3
+
+    class BrokenSpendGovernance(SpendGovernance):
+        def get_daily_spend(self) -> float:
+            raise sqlite3.OperationalError("simulated db error")
+
+    sg = BrokenSpendGovernance()
+    tripped, spend, limit = sg.is_budget_exceeded(
+        session_id="test_err_sess",
+        threshold_usd=10.0,
+        daily_budget_usd=5.0,
+    )
+    assert tripped is True
+    assert math.isinf(spend)
+    assert limit == 5.0
+
+    reserved_ok = sg.reserve_budget(
+        session_id="test_err_sess",
+        reservation_id="res_err_1",
+        estimated_usd=0.05,
+        threshold_usd=10.0,
+        daily_budget_usd=5.0,
+    )
+    assert reserved_ok is False

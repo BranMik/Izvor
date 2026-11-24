@@ -73,6 +73,7 @@ class SyncReconciliationEngine:
                 True,
                 current_config_hash,
             )
+            stats["errors"] = []
             stats["unchanged"] = len(diff["unchanged"])
             if diff.get("config_drifted"):
                 logger.info("[RAG Sync] Detected RAG configuration drift; re-indexing documents.")
@@ -89,6 +90,7 @@ class SyncReconciliationEngine:
                     logger.info(f"[RAG Sync] Deleted {rel_doc_id} from vector store and manifest")
                 except Exception as e:  # noqa: BLE001
                     had_errors = True
+                    stats["errors"].append({"doc_id": rel_doc_id, "operation": "delete", "error": str(e)})
                     logger.error(f"[RAG Sync] Error deleting {rel_doc_id}: {e}")
 
             # 2. Process modified files (atomic swap: parse & embed before purging old chunks)
@@ -129,6 +131,7 @@ class SyncReconciliationEngine:
                     logger.info(f"[RAG Sync] Updated {rel_doc_id} ({len(chunk_ids)} chunks)")
                 except Exception as e:  # noqa: BLE001
                     had_errors = True
+                    stats["errors"].append({"doc_id": rel_doc_id, "operation": "modify", "error": str(e)})
                     logger.error(f"[RAG Sync] Error updating {rel_doc_id}: {e}")
 
             # 3. Process new files
@@ -161,6 +164,7 @@ class SyncReconciliationEngine:
                     logger.info(f"[RAG Sync] Indexed new file {rel_doc_id} ({len(chunk_ids)} chunks)")
                 except Exception as e:  # noqa: BLE001
                     had_errors = True
+                    stats["errors"].append({"doc_id": rel_doc_id, "operation": "index", "error": str(e)})
                     logger.error(f"[RAG Sync] Error indexing new file {rel_doc_id}: {e}")
 
             # Rebuild FTS index once per sync batch and persist updated manifest & config_hash

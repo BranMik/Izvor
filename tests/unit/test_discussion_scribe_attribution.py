@@ -175,7 +175,9 @@ async def test_scribe_strips_multiline_footers_and_extracts_bracketed_persona():
 
 @pytest.mark.anyio
 async def test_scribe_handles_empty_choices_gracefully():
-    """TKT-1217: _generate_text_with_fallback handles None/empty .choices without IndexError or AttributeError."""
+    """TKT-1217 & TKT-1417: _generate_text_with_fallback handles None/empty .choices and produces unavailable marker rejected by _is_usable_scribe_output."""
+    from agents.thread_notes_agent import _is_usable_scribe_output
+
     empty_resp = MagicMock()
     empty_resp.choices = []
     empty_resp.usage = None
@@ -184,14 +186,16 @@ async def test_scribe_handles_empty_choices_gracefully():
     retry_resp.choices = None
     retry_resp.usage = None
 
-    mock_completion_fn = AsyncMock(side_effect=[empty_resp, retry_resp])
-    scribe = DiscussionScribe(completion_fn=mock_completion_fn)
+    for noun in ("Synthesis", "Conclusion"):
+        mock_completion_fn = AsyncMock(side_effect=[empty_resp, retry_resp])
+        scribe = DiscussionScribe(completion_fn=mock_completion_fn)
 
-    text, usage, ok = await scribe._generate_text_with_fallback(
-        messages=[{"role": "user", "content": "hello"}],
-        label="brief",
-        unavailable_noun="Brief",
-    )
-    assert ok is False
-    assert "Brief unavailable" in text
+        text, usage, ok = await scribe._generate_text_with_fallback(
+            messages=[{"role": "user", "content": "hello"}],
+            label=noun.lower(),
+            unavailable_noun=noun,
+        )
+        assert ok is False
+        assert f"{noun} unavailable" in text
+        assert _is_usable_scribe_output(text) is False
 

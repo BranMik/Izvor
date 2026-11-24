@@ -156,7 +156,9 @@ async def test_hitl_approve_restores_checkpoint_and_continues_remaining_agents()
 
 @pytest.mark.anyio
 async def test_hitl_resume_generation_mismatch_fixed():
-    """Verifies TKT-904: resume_from_checkpoint syncs my_generation so active turns with generation >= 1 are not aborted as superseded."""
+    """Verifies TKT-904 / TKT-1401: matching my_generation resumes cleanly, while post-interrupt generation mismatch rejects as superseded."""
+    from services.hitl import register_hitl_request, get_pending_request
+
     channel_id = "C_HITL_GEN"
     thread_ts = "99999.0003"
     thread_state_manager.clear_state(channel_id, thread_ts)
@@ -167,6 +169,7 @@ async def test_hitl_resume_generation_mismatch_fixed():
     thread_state_manager.increment_generation(channel_id, thread_ts)
     assert thread_state_manager.get_generation(channel_id, thread_ts) == 3
 
+    req = register_hitl_request(channel_id, thread_ts, "update_records", {})
     chk = TurnCheckpoint(
         checkpoint_id="chk_test_gen_001",
         session_id=f"{channel_id}:{thread_ts}",
@@ -174,7 +177,8 @@ async def test_hitl_resume_generation_mismatch_fixed():
         thread_ts=thread_ts,
         agent_key="agent-10001",
         pause_reason="hitl",
-        hitl_request_id="req_hitl_gen",
+        hitl_request_id=req.request_id,
+        my_generation=3,
         messages=[
             {"role": "user", "content": "Update production records."},
             {"role": "assistant", "content": "", "tool_calls": [{"id": "call_p1", "name": "update_records", "args": {}}]},
@@ -187,6 +191,9 @@ async def test_hitl_resume_generation_mismatch_fixed():
         completion_tokens=20,
     )
     turn_checkpoint_store.save_checkpoint(chk)
+
+    # Even with empty remaining_agents, active checkpoint makes thread active (CB-02)
+    assert thread_state_manager.is_discussion_active(channel_id, thread_ts) is True
 
     mock_followup = MagicMock()
     mock_followup.choices = [
@@ -206,8 +213,42 @@ async def test_hitl_resume_generation_mismatch_fixed():
     )
 
     assert turn_res.get("ok") is True
-    assert turn_res.get("status") != "superseded"
+    assert turn_res.get("reason") != "superseded"
     assert "Production records updated successfully" in turn_res.get("final_text", "")
+
+    # Now verify stale generation rejection + interrupt invalidation (CB-01)
+    req_stale = register_hitl_request(channel_id, thread_ts, "update_records", {"id": 2})
+    chk_stale = TurnCheckpoint(
+        checkpoint_id="chk_test_gen_stale",
+        session_id=f"{channel_id}:{thread_ts}",
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        agent_key="agent-10001",
+        pause_reason="hitl",
+        hitl_request_id=req_stale.request_id,
+        my_generation=3,
+        messages=[{"role": "user", "content": "Old topic"}],
+        pending_tool_call={"id": "call_p2", "name": "update_records", "args": {"id": 2}},
+    )
+    turn_checkpoint_store.save_checkpoint(chk_stale)
+
+    thread_state_manager.interrupt_discussion(channel_id, thread_ts)
+    assert thread_state_manager.get_generation(channel_id, thread_ts) == 4
+    assert get_pending_request(req_stale.request_id) is None
+    abandoned_chk = turn_checkpoint_store.get_checkpoint("chk_test_gen_stale")
+    assert abandoned_chk is not None and abandoned_chk.status == "ABANDONED"
+
+    # Even if a caller holds an in-memory snapshot of chk_stale, resume_from_checkpoint rejects it as superseded
+    # Reset status to ACTIVE via save_checkpoint with old generation=3 to simulate race after increment_generation
+    chk_stale.status = "ACTIVE"
+    turn_checkpoint_store.save_checkpoint(chk_stale)
+    stale_res = await pipeline.resume_from_checkpoint(
+        checkpoint=chk_stale,
+        tool_result="SUCCESS",
+        user_id="U_ADMIN",
+    )
+    assert stale_res.get("cancelled") is True
+    assert stale_res.get("reason") == "superseded"
 
 
 @pytest.mark.anyio
@@ -452,5 +493,168 @@ async def test_resume_from_checkpoint_unlocks_skills_control_plane_and_claims_at
     assert len(successes) == 1
     assert successes[0].get("ok") is True
     assert "[agent-10002]" in successes[0].get("final_text", "")
+
+
+@pytest.mark.anyio
+async def test_dispatch_discussion_task_cancels_previous_task_and_stop_invalidates_pauses():
+    """TKT-1401: dispatch_discussion_task cancels superseded active task and request_stop increments generation + clears file_context + abandons checkpoints."""
+    import asyncio
+    from services.hitl import register_hitl_request, get_pending_request
+
+    channel_id = "C_DISP_CANCEL"
+    thread_ts = "99999.0012"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    cancelled_flag = False
+    started_evt = asyncio.Event()
+
+    async def slow_worker():
+        nonlocal cancelled_flag
+        started_evt.set()
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled_flag = True
+            raise
+
+    done_evt = asyncio.Event()
+
+    async def second_worker():
+        done_evt.set()
+
+    thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, slow_worker())
+    await started_evt.wait()
+    first_task = thread_state_manager.get_active_task(channel_id, thread_ts)
+    assert first_task is not None
+
+    thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, second_worker())
+    await done_evt.wait()
+    await asyncio.sleep(0)
+    assert cancelled_flag is True
+    assert first_task.cancelled() or first_task.done()
+
+    # Now verify request_stop clears file_context, invalidates checkpoints + HITL, and blocks late checkpoint resume
+    gen_before = thread_state_manager.get_generation(channel_id, thread_ts)
+    thread_state_manager.set_file_context(channel_id, thread_ts, {"filename": "secret.txt", "content": "content"})
+    req = register_hitl_request(channel_id, thread_ts, "write_note", {"text": "hi"})
+    stop_chk = TurnCheckpoint(
+        checkpoint_id="chk_stop_inv",
+        session_id=f"{channel_id}:{thread_ts}",
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        agent_key="agent-10001",
+        pause_reason="hitl",
+        hitl_request_id=req.request_id,
+        my_generation=gen_before,
+        messages=[{"role": "user", "content": "old"}],
+    )
+    turn_checkpoint_store.save_checkpoint(stop_chk)
+    thread_state_manager.request_stop(channel_id, thread_ts)
+    assert thread_state_manager.is_stopped(channel_id, thread_ts) is True
+    assert thread_state_manager.get_file_context(channel_id, thread_ts) is None
+    assert get_pending_request(req.request_id) is None
+    stopped_chk = turn_checkpoint_store.get_checkpoint("chk_stop_inv")
+    assert stopped_chk is not None and stopped_chk.status == "ABANDONED"
+
+    # Even if re-saved ACTIVE while stop_requested=1, resume_from_checkpoint rejects it
+    stop_chk.status = "ACTIVE"
+    turn_checkpoint_store.save_checkpoint(stop_chk)
+    pipeline = TurnPipeline(
+        llm_executor=AsyncMock(),
+        slack_poster=AsyncMock(return_value={"ok": True, "ts": "99999"}),
+    )
+    late_res = await pipeline.resume_from_checkpoint(checkpoint=stop_chk, tool_result="OK", user_id="U_ADMIN")
+    assert late_res.get("cancelled") is True
+    assert late_res.get("reason") == "stopped"
+
+
+@pytest.mark.anyio
+async def test_graceful_shutdown_cancel_releases_checkpoint_claim_and_superseded_tool_loop_returns_dict():
+    """
+    TKT-1407 (CB-07):
+    1. External asyncio.CancelledError during resume_from_checkpoint (graceful shutdown) calls release_claim()
+       reverting status back to ACTIVE with payloads preserved.
+    2. Superseding a turn during ToolLoopRunner returns a structured cancellation dict instead of raising
+       asyncio.CancelledError into Scatter-Gather TaskGroups.
+    """
+    import asyncio
+    from orchestration.stages.tool_loop_runner import ToolLoopRunner
+    from orchestration.protocols import PipelineDeps
+    from orchestration.turn_pipeline import TurnContext
+
+    ch = "C_SHUTDOWN_CHK"
+    ts = "99999.0020"
+    thread_state_manager.clear_state(ch, ts)
+
+    chk = TurnCheckpoint(
+        checkpoint_id="chk_shutdown_rel",
+        session_id=f"{ch}:{ts}",
+        channel_id=ch,
+        thread_ts=ts,
+        agent_key="agent-10001",
+        pause_reason="hitl",
+        prompt="Important prompt",
+        messages=[{"role": "user", "content": "Do work"}],
+        pending_tool_call={"id": "c_sd", "name": "write_file", "args": {}},
+    )
+    turn_checkpoint_store.save_checkpoint(chk)
+
+    started = asyncio.Event()
+
+    async def hanging_llm(*args, **kwargs):
+        started.set()
+        await asyncio.sleep(30)
+
+    pipeline = TurnPipeline(
+        llm_executor=hanging_llm,
+        slack_poster=AsyncMock(return_value={"ok": True, "ts": "123"}),
+    )
+
+    task = asyncio.create_task(
+        pipeline.resume_from_checkpoint(checkpoint="chk_shutdown_rel", tool_result="SAVED_OUTPUT", user_id="U_ADMIN")
+    )
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    restored = turn_checkpoint_store.get_checkpoint("chk_shutdown_rel")
+    assert restored is not None
+    assert restored.status == "ACTIVE"
+    assert restored.prompt == "Important prompt"
+    assert any("SAVED_OUTPUT" in str(m.get("content", "")) for m in restored.messages)
+
+    # Part 2: ToolLoopRunner supersession returns dict instead of raising CancelledError
+    ch_s = "C_SUPER_TOOL"
+    ts_s = "99999.0021"
+    thread_state_manager.clear_state(ch_s, ts_s)
+    ctx = TurnContext(channel_id=ch_s, thread_ts=ts_s, raw_text="test")
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "test-model", "skills": []}
+    ctx.my_generation = thread_state_manager.get_generation(ch_s, ts_s)
+
+    tc = MagicMock()
+    tc.id = "c_s1"
+    tc.function.name = "unknown_tool"
+    tc.function.arguments = "{}"
+    first_msg = MagicMock(content="", tool_calls=[tc])
+    first_msg.model_dump.return_value = {"role": "assistant", "content": ""}
+
+    async def _superseding_exec(*args, **kwargs):
+        thread_state_manager.increment_generation(ch_s, ts_s)
+        return None
+
+    runner = ToolLoopRunner(PipelineDeps(llm_executor=_superseding_exec))
+    res = await runner.run(
+        ctx,
+        active_tools=[],
+        agent_skills=[],
+        expired_thread_skills=[],
+        thread_ttl_hours=1.0,
+        initial_response_message=first_msg,
+    )
+    assert isinstance(res, dict)
+    assert res.get("cancelled") is True
+    assert res.get("reason") == "superseded"
 
 

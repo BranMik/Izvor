@@ -103,6 +103,24 @@ def test_round_evidence_store_rejects_errors_and_empty():
         "Permission denied: unauthorized access", "agent-1"
     ) is None
 
+    # 4-key MCP error JSON (CB-11)
+    assert store.add_evidence(
+        channel_id, thread_ts, "web_search", {"q": "mcp"},
+        json.dumps({"server": "srv", "tool": "fetch", "error": "timeout", "isError": True}), "agent-1"
+    ) is None
+
+    # Indented web_search error JSON and >300 char JSON error (CB-11)
+    indented_err = json.dumps({"error": "upstream failure " + ("x" * 350), "status": 503}, indent=2)
+    assert store.add_evidence(
+        channel_id, thread_ts, "web_search", {"q": "indent"}, indented_err, "agent-1"
+    ) is None
+
+    # Plain-text RAGService error format (normalized + defensive check)
+    assert store.add_evidence(
+        channel_id, thread_ts, "search_knowledge_rag", {"query": "rag"},
+        "Error executing knowledge base search: table missing", "agent-1"
+    ) is None
+
 
 def test_agent_scoped_cache_isolation():
     store = RoundEvidenceStore()

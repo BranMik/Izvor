@@ -119,3 +119,49 @@ def test_turn_pipeline_setters_propagate_deps_to_all_stages():
     pipeline.workspace_adapter = custom_adapter
     for stage in stages:
         assert stage.deps.workspace_adapter is custom_adapter
+
+
+@pytest.mark.anyio
+async def test_close_all_connections_spares_live_worker_thread_and_drains_telemetry(tmp_path):
+    """TKT-1410: Telemetry futures drain cleanly and close_all_connections does not close foreign live connections."""
+    import threading
+    from core.database import db_manager
+    from services import telemetry
+
+    done_evt = threading.Event()
+    release_evt = threading.Event()
+
+    def _worker():
+        with db_manager.get_connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+        done_evt.set()
+        release_evt.wait(timeout=2.0)
+
+    db_manager.configure_paths(db_path=tmp_path / "lifespan_foreign.db")
+    db_manager.init_db()
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    try:
+        assert done_evt.wait(timeout=2.0)
+        telemetry.record_turn_trace(
+            session_id="sess_drain",
+            channel_id="C_DRAIN",
+            thread_ts="100.1",
+            agent_key="agent-10001",
+            stage_name="stage4",
+            duration_ms=12.5,
+            status="SUCCESS",
+        )
+        await telemetry.drain_turn_traces(timeout=2.0)
+        traces = telemetry.get_turn_traces(session_id="sess_drain")
+        assert len(traces) == 1
+        with db_manager._conns_lock:
+            assert t.ident in db_manager._thread_conns
+        db_manager.close_all_connections()
+        with db_manager._conns_lock:
+            assert t.ident in db_manager._thread_conns
+    finally:
+        release_evt.set()
+        t.join(timeout=2.0)
+        db_manager.close_all_connections()
+        db_manager.reset_paths()

@@ -1,6 +1,5 @@
 import concurrent.futures
 from pathlib import Path
-import pytest
 
 from core.database import DatabaseManager, MIGRATIONS
 
@@ -16,15 +15,43 @@ def test_pragma_user_version_advancement(tmp_path: Path):
         assert ver >= 2
 
 
-def test_nested_transaction_rejection(tmp_path: Path):
+def test_nested_savepoint_transaction_commit_and_partial_rollback(tmp_path: Path):
     db_file = tmp_path / "test_nested.db"
     mgr = DatabaseManager(db_path=db_file)
     mgr.init_db()
 
-    with pytest.raises(RuntimeError, match="Nested or interleaved SQLite transaction detected"):
-        with mgr.transaction(immediate=True):
-            with mgr.transaction(immediate=True):
-                pass
+    with mgr.get_connection() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS test_savepoints (k TEXT PRIMARY KEY, v TEXT)")
+        conn.commit()
+
+    with mgr.transaction(immediate=True) as outer_conn:
+        outer_conn.execute(
+            "INSERT INTO test_savepoints (k, v) VALUES (?, ?)",
+            ("outer_key", "outer_val"),
+        )
+        # Inner savepoint rolls back cleanly without aborting outer transaction
+        try:
+            with mgr.transaction(immediate=True) as inner_conn:
+                inner_conn.execute(
+                    "INSERT INTO test_savepoints (k, v) VALUES (?, ?)",
+                    ("inner_rollback_key", "should_not_persist"),
+                )
+                raise ValueError("abort inner savepoint")
+        except ValueError:
+            pass
+
+        # Inner savepoint commits atomically into outer transaction
+        with mgr.transaction(immediate=True) as inner_ok:
+            inner_ok.execute(
+                "INSERT INTO test_savepoints (k, v) VALUES (?, ?)",
+                ("inner_commit_key", "persisted"),
+            )
+
+    with mgr.get_connection() as conn:
+        rows = dict(conn.execute("SELECT k, v FROM test_savepoints").fetchall())
+    assert rows["outer_key"] == "outer_val"
+    assert rows["inner_commit_key"] == "persisted"
+    assert "inner_rollback_key" not in rows
 
 
 def test_dead_thread_connection_cleanup(tmp_path: Path):
@@ -213,10 +240,13 @@ def test_migration_v6_to_v7_adds_turn_checkpoints_prompt(tmp_path):
             }
             assert "prompt" in cols
             assert cols["prompt"]["dflt_value"] == "''"
+            assert "my_generation" in cols
+            assert cols["my_generation"]["dflt_value"] == "NULL"
             row = migrated_conn.execute(
-                "SELECT prompt FROM turn_checkpoints WHERE checkpoint_id = 'chk_v6'"
+                "SELECT prompt, my_generation FROM turn_checkpoints WHERE checkpoint_id = 'chk_v6'"
             ).fetchone()
             assert row["prompt"] == ""
+            assert row["my_generation"] is None
     finally:
         db_manager.configure_paths(orig_db_path)
 

@@ -171,3 +171,78 @@ async def test_discussion_loop_appends_final_turn_and_revisor_warning_before_bre
     finally:
         reset_paths()
 
+
+@pytest.mark.anyio
+async def test_discussion_loop_max_turns_cleanup_and_excludes_error_banners():
+    """
+    TKT-1409 (CB-10):
+    1. When max_turns is reached, force_termination_override is passed on the final turn and SQLite
+       remaining_agents / round state is cleared on exit.
+    2. Failed turn error banners (ok=False) are never appended to accumulated_history.
+    """
+    ch = "C_MAX_TURNS"
+    ts = "1000.0099"
+    thread_state_manager.clear_state(ch, ts)
+    thread_state_manager.set_remaining_agents(ch, ts, ["agent-10001", "agent-10002", "agent-10003"])
+
+    seen_histories: list[list[dict]] = []
+    seen_force_flags: list[bool] = []
+    call_count = 0
+
+    async def _turn_exec(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        seen_histories.append(list(kwargs.get("in_memory_history") or []))
+        seen_force_flags.append(bool(kwargs.get("force_termination_override", False)))
+        if call_count == 1:
+            return {
+                "ok": True,
+                "agent_key": "agent-10001",
+                "username": "Architect",
+                "final_text": "Turn 1 healthy",
+                "is_completed": False,
+            }
+        return {
+            "ok": True,
+            "agent_key": "agent-10002",
+            "username": "Tactician",
+            "final_text": "Turn 2 at max_turns",
+            "is_completed": False,
+        }
+
+    loop = DiscussionLoop(turn_executor=_turn_exec)
+    with (
+        patch("orchestration.discussion_loop.fetch_thread_history", AsyncMock(return_value=[])),
+        patch("orchestration.discussion_loop.get_orchestration_mode", return_value="fixed"),
+    ):
+        await loop.run(channel_id=ch, thread_ts=ts, initial_raw_text="Start", max_turns=2)
+
+    assert call_count == 2
+    assert seen_force_flags == [False, True]
+    assert thread_state_manager.get_remaining_agents(ch, ts) == []
+
+    # Part 2: ok=False error banner must not enter accumulated_history
+    ch_e = "C_ERR_HIST"
+    ts_e = "1000.0100"
+    thread_state_manager.clear_state(ch_e, ts_e)
+    hist_captured: list[dict] = []
+
+    async def _err_exec(**kwargs):
+        return {
+            "ok": False,
+            "agent_key": "agent-10001",
+            "username": "Architect",
+            "final_text": "RATE LIMITS CROSSED",
+            "is_completed": False,
+        }
+
+    loop_err = DiscussionLoop(turn_executor=_err_exec)
+    with patch("orchestration.discussion_loop.fetch_thread_history", AsyncMock(return_value=[])):
+        await loop_err.run(
+            channel_id=ch_e,
+            thread_ts=ts_e,
+            initial_raw_text="Fail",
+            accumulated_history=hist_captured,
+        )
+    assert hist_captured == []
+

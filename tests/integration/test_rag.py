@@ -288,18 +288,21 @@ def test_vector_store_sql_literal_validation():
     assert _sql_literal("LegalAdvisor/runbook.md") == "'LegalAdvisor/runbook.md'"
     assert _sql_literal("doc_123:456") == "'doc_123:456'"
     assert _sql_literal("doc's title") == "'doc''s title'"
+    assert _sql_literal("doc (v2), R&D+test @team") == "'doc (v2), R&D+test @team'"
 
     # Unsafe literals must raise ValueError
-    with pytest.raises(ValueError):
-        _sql_literal("doc\x00injection")
-    with pytest.raises(ValueError):
-        _sql_literal("'; DROP TABLE agent_knowledge; --")
-    with pytest.raises(ValueError):
-        _sql_literal("line\nbreak")
-    with pytest.raises(ValueError):
-        _sql_literal("")
-    with pytest.raises(ValueError):
-        _sql_literal("a" * 300)
+    for bad in (
+        "doc\x00injection",
+        "'; DROP TABLE agent_knowledge; --",
+        "doc -- comment",
+        "doc /* block */",
+        "doc\\escape",
+        "line\nbreak",
+        "",
+        "a" * 300,
+    ):
+        with pytest.raises(ValueError):
+            _sql_literal(bad)
 
 
 @pytest.mark.anyio

@@ -308,7 +308,8 @@ def build_agent_prompt(
                     continue
                 sk = skill_registry.get(mod_k)
                 if sk and sk.instructions:
-                    formatted_inst = sk.instructions.replace("{value}", str(mod_v))
+                    safe_mod_v = "".join(ch for ch in str(mod_v) if ord(ch) >= 32 and ch not in "<>")[:128]
+                    formatted_inst = sk.instructions.replace("{value}", safe_mod_v)
                     custom_directives.append(formatted_inst)
                 elif mod_v:
                     logger.warning(

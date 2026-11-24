@@ -158,7 +158,7 @@ class DiscussionLoop:
                 if "agent_key" in turn_res and turn_res["agent_key"]:
                     spoken_agents.add(turn_res["agent_key"])
 
-                if "final_text" in turn_res:
+                if isinstance(turn_res, dict) and turn_res.get("ok", True) is not False and "final_text" in turn_res:
                     agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
                     accumulated_history.append(
                         {
@@ -289,63 +289,107 @@ class DiscussionLoop:
 
                         scatter_results: list[ScatterBranchResult] = [t.result() for t in branch_tasks]
 
-                        # Check if any branch halted, requested HITL, or tripped circuit breaker
+                        # Reduce completed (non-halted) branches into history BEFORE returning on any halted branch (CB-03)
+                        halted_branches: list[tuple[dict[str, Any], str]] = []
+                        completed_scatter_agents: set[str] = set()
                         for s_res in scatter_results:
                             resp = s_res.response
-                            if isinstance(resp, dict):
-                                if (
-                                    resp.get("waiting_hitl")
-                                    or resp.get("clarification_question")
-                                    or resp.get("halted")
-                                    or resp.get("circuit_breaker_triggered")
-                                    or resp.get("cancelled")
-                                ):
-                                    logger.info(
-                                        f"[ORCHESTRATOR] Scatter branch {s_res.agent_key} triggered halt/HITL. Halting scatter-gather sequence."
-                                    )
-                                    return resp
+                            if isinstance(resp, dict) and (
+                                resp.get("waiting_hitl")
+                                or resp.get("clarification_question")
+                                or resp.get("halted")
+                                or resp.get("circuit_breaker_triggered")
+                                or resp.get("cancelled")
+                            ):
+                                halted_branches.append((resp, s_res.agent_key))
+                                continue
 
-                        # Single deterministic post-gather reducer
-                        for s_res in scatter_results:
-                            if s_res.response and isinstance(s_res.response, dict) and "final_text" in s_res.response:
-                                s_name = s_res.response.get(
-                                    "displayname", s_res.response.get("username", "Unknown Agent")
-                                )
+                            if (
+                                isinstance(resp, dict)
+                                and resp.get("ok", True) is not False
+                                and "final_text" in resp
+                            ):
+                                s_name = resp.get("displayname", resp.get("username", "Unknown Agent"))
                                 accumulated_history.append(
                                     {
                                         "role": "assistant",
-                                        "content": f"[{s_name}]: {s_res.response['final_text']}",
+                                        "content": f"[{s_name}]: {resp['final_text']}",
                                     }
                                 )
                                 spoken_agents.add(s_res.agent_key)
-                                last_res = s_res.response
+                                completed_scatter_agents.add(s_res.agent_key)
+                                last_res = resp
                             elif s_res.error:
                                 logger.warning(
                                     f"[ORCHESTRATOR] Scatter branch {s_res.agent_key} error noted: {s_res.error}"
                                 )
 
+                        if halted_branches:
+                            if completed_scatter_agents:
+                                try:
+                                    from services.flat_history_recorder import async_record_flat_history
+
+                                    init_p = (
+                                        thread_state_manager.get_initial_prompt(channel_id, thread_ts)
+                                        or initial_raw_text
+                                    )
+                                    await async_record_flat_history(
+                                        channel_id=channel_id,
+                                        thread_ts=thread_ts,
+                                        initial_prompt=init_p,
+                                        messages=accumulated_history,
+                                    )
+                                except Exception as e:  # noqa: BLE001
+                                    logger.debug(f"[ORCHESTRATOR] Partial flat history sync exception: {e}")
+
+                            from services.turn_checkpoint_store import turn_checkpoint_store
+
+                            halted_res, halted_agent = halted_branches[0]
+                            for h_resp, _ in halted_branches:
+                                h_chk_id = h_resp.get("checkpoint_id")
+                                if h_chk_id:
+                                    turn_checkpoint_store.update_accumulated_history(h_chk_id, accumulated_history)
+
+                            pruned_agents = set(completed_scatter_agents)
+                            if halted_res.get("checkpoint_id"):
+                                pruned_agents.add(halted_agent)
+                            remaining_on_pause = [a for a in remaining if a not in pruned_agents]
+                            thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining_on_pause)
+                            logger.info(
+                                f"[ORCHESTRATOR] Scatter branch {halted_agent} triggered halt/HITL "
+                                f"(pruned completed siblings: {sorted(completed_scatter_agents)}). Halting scatter-gather sequence."
+                            )
+                            return halted_res
+
                         remaining_after = [a for a in remaining if a not in scatter_agents]
                         thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining_after)
 
                         # Gather & Synthesis Phase: execute the complete end_chain
+                        exec_sig_gather = inspect.signature(self.turn_executor)
+                        supports_defer = "defer_round_decrement" in exec_sig_gather.parameters or any(
+                            p.kind == inspect.Parameter.VAR_KEYWORD for p in exec_sig_gather.parameters.values()
+                        )
                         while remaining_after and not thread_state_manager.is_stopped(channel_id, thread_ts):
                             gather_agent = remaining_after.pop(0)
                             thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining_after)
                             logger.info(
                                 f"[ORCHESTRATOR] Entering Parallel Gather Phase with synthesis agent {gather_agent}."
                             )
-                            gather_res = await self.turn_executor(
-                                channel_id=channel_id,
-                                thread_ts=thread_ts,
-                                raw_text="Synthesize the parallel specialist perspectives into a reconciled conclusion.",
-                                bot_user_id=bot_user_id,
-                                icon_url=icon_url,
-                                is_bot_trigger=True,
-                                run_internal_loop=False,
-                                in_memory_history=accumulated_history,
-                                user_id=user_id,
-                                target_agent_override=gather_agent,
-                            )
+                            gather_kwargs: dict[str, Any] = {
+                                "channel_id": channel_id,
+                                "thread_ts": thread_ts,
+                                "raw_text": "Synthesize the parallel specialist perspectives into a reconciled conclusion.",
+                                "bot_user_id": bot_user_id,
+                                "icon_url": icon_url,
+                                "is_bot_trigger": True,
+                                "run_internal_loop": False,
+                                "in_memory_history": accumulated_history,
+                                "user_id": user_id,
+                                "target_agent_override": gather_agent,
+                            }
+                            if supports_defer:
+                                gather_kwargs["defer_round_decrement"] = True
+                            gather_res = await self.turn_executor(**gather_kwargs)
                             last_res = gather_res
                             if isinstance(gather_res, dict):
                                 if (
@@ -356,7 +400,7 @@ class DiscussionLoop:
                                     or gather_res.get("cancelled")
                                 ):
                                     return gather_res
-                                if "final_text" in gather_res:
+                                if gather_res.get("ok", True) is not False and "final_text" in gather_res:
                                     g_name = gather_res.get("displayname", gather_res.get("username", "Unknown Agent"))
                                     accumulated_history.append(
                                         {
@@ -379,7 +423,7 @@ class DiscussionLoop:
                         except Exception as e:  # noqa: BLE001
                             logger.debug(f"[ORCHESTRATOR] Flat history sync exception: {e}")
 
-                        # Multi-round continuation support for scatter-gather
+                        # Multi-round continuation support for scatter-gather (single-authority decrement_rounds, CB-04)
                         active_rounds = thread_state_manager.get_rounds(channel_id, thread_ts)
                         if active_rounds > 0 and not thread_state_manager.is_stopped(channel_id, thread_ts):
                             remaining_rounds = thread_state_manager.decrement_rounds(channel_id, thread_ts)
@@ -409,6 +453,16 @@ class DiscussionLoop:
                                     is_bot_trigger=True,
                                 )
 
+                        if not thread_state_manager.is_stopped(channel_id, thread_ts):
+                            thread_state_manager.clear_round_execution_state(channel_id, thread_ts)
+                            try:
+                                from agents import trigger_thread_notes_update, trigger_usage_update
+
+                                trigger_thread_notes_update(channel_id, thread_ts, is_completed=True)
+                                trigger_usage_update(channel_id, thread_ts, is_completed=True)
+                            except Exception as e:  # noqa: BLE001
+                                logger.debug(f"[ORCHESTRATOR] Final scatter-gather completion hook error: {e}")
+
                         return last_res
             else:
                 # --- RESUMPTION FROM PRIOR TURN ---
@@ -422,7 +476,7 @@ class DiscussionLoop:
                 if "agent_key" in turn_res and turn_res["agent_key"]:
                     spoken_agents.add(turn_res["agent_key"])
 
-                if "final_text" in turn_res:
+                if isinstance(turn_res, dict) and turn_res.get("ok", True) is not False and "final_text" in turn_res:
                     agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
                     accumulated_history.append(
                         {
@@ -483,6 +537,10 @@ class DiscussionLoop:
                 next_target_override = None
 
             # Main turn progression loop
+            exec_sig_loop = inspect.signature(self.turn_executor)
+            supports_force_term = "force_termination_override" in exec_sig_loop.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in exec_sig_loop.parameters.values()
+            )
             start_turn = 2
             turn_num = start_turn
             while turn_num <= max_turns:
@@ -507,25 +565,28 @@ class DiscussionLoop:
                     break
 
                 logger.info(f"[ORCHESTRATOR] Executing internal turn {turn_num} for thread {thread_key}")
-                turn_res = await self.turn_executor(
-                    channel_id=channel_id,
-                    thread_ts=thread_ts,
-                    raw_text=current_prompt,
-                    bot_user_id=bot_user_id,
-                    icon_url=icon_url,
-                    is_bot_trigger=True,
-                    run_internal_loop=False,
-                    in_memory_history=accumulated_history,
-                    user_id=user_id,
-                    target_agent_override=next_target_override,
-                )
+                loop_turn_kwargs: dict[str, Any] = {
+                    "channel_id": channel_id,
+                    "thread_ts": thread_ts,
+                    "raw_text": current_prompt,
+                    "bot_user_id": bot_user_id,
+                    "icon_url": icon_url,
+                    "is_bot_trigger": True,
+                    "run_internal_loop": False,
+                    "in_memory_history": accumulated_history,
+                    "user_id": user_id,
+                    "target_agent_override": next_target_override,
+                }
+                if supports_force_term and turn_num >= max_turns:
+                    loop_turn_kwargs["force_termination_override"] = True
+                turn_res = await self.turn_executor(**loop_turn_kwargs)
                 next_target_override = None
                 last_res = turn_res
 
                 if "agent_key" in turn_res and turn_res["agent_key"]:
                     spoken_agents.add(turn_res["agent_key"])
 
-                if "final_text" in turn_res:
+                if isinstance(turn_res, dict) and turn_res.get("ok", True) is not False and "final_text" in turn_res:
                     agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
                     accumulated_history.append(
                         {
@@ -586,8 +647,22 @@ class DiscussionLoop:
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"[ORCHESTRATOR] Final flat history sync exception: {e}")
 
-            if not last_res.get("halted") and not thread_state_manager.get_remaining_agents(channel_id, thread_ts):
+            hit_max_turns = turn_num > max_turns
+            if (
+                not last_res.get("halted")
+                and not last_res.get("waiting_hitl")
+                and not last_res.get("clarification_question")
+                and (hit_max_turns or not thread_state_manager.get_remaining_agents(channel_id, thread_ts))
+            ):
                 thread_state_manager.clear_round_execution_state(channel_id, thread_ts)
+                if hit_max_turns and not last_res.get("is_completed"):
+                    try:
+                        from agents import trigger_thread_notes_update, trigger_usage_update
+
+                        trigger_thread_notes_update(channel_id, thread_ts, is_completed=True)
+                        trigger_usage_update(channel_id, thread_ts, is_completed=True)
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug(f"[ORCHESTRATOR] max_turns completion hook error: {e}")
 
             return last_res
         except asyncio.CancelledError:

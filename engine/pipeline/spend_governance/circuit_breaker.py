@@ -1,3 +1,4 @@
+import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
@@ -80,8 +81,11 @@ class SpendGovernance:
                 ).fetchone()
                 if row:
                     return round(float(row["daily_cost"]), 6)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.error(f"[SPEND GOVERNANCE] Failed querying daily spend from SQLite: {e}")
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[SPEND GOVERNANCE] Unexpected error querying daily spend from SQLite: {e}")
 
         return 0.0
 
@@ -136,8 +140,11 @@ class SpendGovernance:
                         cost_by_model=cost_by_model,
                         tokens_by_model=tokens_by_model,
                     )
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.error(f"[SPEND GOVERNANCE] Failed querying session spend from SQLite: {e}")
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[SPEND GOVERNANCE] Unexpected error querying session spend from SQLite: {e}")
 
         return SpendMetrics(
             session_id=session_id,
@@ -167,24 +174,31 @@ class SpendGovernance:
                 if daily_budget_usd is not None
                 else self.default_daily_budget_usd
             )
-            daily_spend = self.get_daily_spend()
-            all_active_res = sum(
-                sum(res.values()) for res in self._active_reservations.values()
-            )
-            if daily_limit > 0 and (daily_spend + all_active_res + estimated_usd) >= daily_limit:
-                logger.warning(
-                    f"[SPEND GOVERNANCE] Cannot reserve ${estimated_usd:.4f}; would exceed daily budget (${daily_spend + all_active_res + estimated_usd:.4f} >= ${daily_limit:.4f})"
+            limit = threshold_usd if threshold_usd is not None else self.default_threshold_usd
+            try:
+                daily_spend = self.get_daily_spend()
+                all_active_res = sum(
+                    sum(res.values()) for res in self._active_reservations.values()
                 )
-                return False
-
-            if enabled:
-                limit = threshold_usd if threshold_usd is not None else self.default_threshold_usd
-                metrics = self.calculate_spend(session_id)
-                session_cost = metrics.total_cost_usd
-                active_res_for_session = sum(self._active_reservations.get(session_id, {}).values())
-                if limit > 0 and (session_cost + active_res_for_session + estimated_usd) >= limit:
+                if daily_limit > 0 and (daily_spend + all_active_res + estimated_usd) >= daily_limit:
                     logger.warning(
-                        f"[SPEND GOVERNANCE] Cannot reserve ${estimated_usd:.4f}; would exceed session threshold (${session_cost + active_res_for_session + estimated_usd:.4f} >= ${limit:.4f})"
+                        f"[SPEND GOVERNANCE] Cannot reserve ${estimated_usd:.4f}; would exceed daily budget (${daily_spend + all_active_res + estimated_usd:.4f} >= ${daily_limit:.4f})"
+                    )
+                    return False
+
+                if enabled:
+                    metrics = self.calculate_spend(session_id)
+                    session_cost = metrics.total_cost_usd
+                    active_res_for_session = sum(self._active_reservations.get(session_id, {}).values())
+                    if limit > 0 and (session_cost + active_res_for_session + estimated_usd) >= limit:
+                        logger.warning(
+                            f"[SPEND GOVERNANCE] Cannot reserve ${estimated_usd:.4f}; would exceed session threshold (${session_cost + active_res_for_session + estimated_usd:.4f} >= ${limit:.4f})"
+                        )
+                        return False
+            except sqlite3.Error as db_err:
+                if daily_limit > 0 or (enabled and limit > 0):
+                    logger.warning(
+                        f"[SPEND GOVERNANCE] SQLite storage error during reserve_budget; failing closed: {db_err}"
                     )
                     return False
 
@@ -234,37 +248,47 @@ class SpendGovernance:
         Checks if session cost or daily aggregated spend has reached or exceeded the monetary budget threshold.
         Returns: `(is_exceeded, current_cost_usd, threshold_usd)`.
         """
-        # 1. Check daily budget threshold (always enforced, independent of per-thread breaker)
-        daily_spend = self.get_daily_spend() + self.get_active_reservations_usd(
-            exclude_reservation_id=exclude_reservation_id
-        )
         daily_limit = (
             daily_budget_usd
             if daily_budget_usd is not None
             else self.default_daily_budget_usd
         )
-        if daily_limit > 0 and daily_spend >= daily_limit:
-            logger.warning(
-                f"[SPEND GOVERNANCE] Daily budget exceeded: ${daily_spend:.4f} >= ${daily_limit:.4f} USD."
-            )
-            return True, daily_spend, daily_limit
-
-        if not enabled:
-            return False, 0.0, 0.0
-
-        # 2. Check per-session threshold
         limit = threshold_usd if threshold_usd is not None else self.default_threshold_usd
-        active_session_res = self.get_active_reservations_usd(
-            session_id,
-            exclude_reservation_id=exclude_reservation_id,
-        )
-        if current_cost_usd is not None:
-            cost = current_cost_usd + active_session_res
-        else:
-            metrics = self.calculate_spend(session_id)
-            cost = metrics.total_cost_usd + active_session_res
-        is_tripped = limit > 0 and cost >= limit
-        return is_tripped, cost, limit
+
+        try:
+            # 1. Check daily budget threshold (always enforced, independent of per-thread breaker)
+            daily_spend = self.get_daily_spend() + self.get_active_reservations_usd(
+                exclude_reservation_id=exclude_reservation_id
+            )
+            if daily_limit > 0 and daily_spend >= daily_limit:
+                logger.warning(
+                    f"[SPEND GOVERNANCE] Daily budget exceeded: ${daily_spend:.4f} >= ${daily_limit:.4f} USD."
+                )
+                return True, daily_spend, daily_limit
+
+            if not enabled:
+                return False, 0.0, 0.0
+
+            # 2. Check per-session threshold
+            active_session_res = self.get_active_reservations_usd(
+                session_id,
+                exclude_reservation_id=exclude_reservation_id,
+            )
+            if current_cost_usd is not None:
+                cost = current_cost_usd + active_session_res
+            else:
+                metrics = self.calculate_spend(session_id)
+                cost = metrics.total_cost_usd + active_session_res
+            is_tripped = limit > 0 and cost >= limit
+            return is_tripped, cost, limit
+        except sqlite3.Error as db_err:
+            if daily_limit > 0 or enabled:
+                effective_limit = daily_limit if daily_limit > 0 else limit
+                logger.warning(
+                    f"[SPEND GOVERNANCE] SQLite storage error during is_budget_exceeded; failing closed: {db_err}"
+                )
+                return True, float("inf"), effective_limit
+            return False, 0.0, 0.0
 
     def clear_session(self, session_id: str) -> None:
         """Clears active budget reservations for a completed session."""

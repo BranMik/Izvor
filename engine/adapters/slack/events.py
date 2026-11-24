@@ -362,9 +362,11 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     )
                     return Response(status_code=200)
 
-                # 6d. Extract nominations and tags (/[Agent_Key] or /{Agent_Key})
+                # 6d. Extract nominations and tags (/[Agent_Key]) matching EntityResolver SSOT grammar
+                from pipeline.entity_resolver.resolver import NOMINATION_TAG_REGEX
+
                 has_tag = False
-                for match in re.finditer(r"/\s*[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", raw_text):
+                for match in NOMINATION_TAG_REGEX.finditer(raw_text):
                     tag = match.group(1)
                     if entity_resolver.resolve_candidates(tag):
                         has_tag = True

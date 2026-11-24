@@ -46,19 +46,21 @@ class ThreadUsageTracker:
 
     def cleanup_thread(self, channel_id: str, thread_ts: str) -> None:
         """Cleans up in-memory runtime locks and active tasks for an evicted thread."""
+        from core.task_utils import safe_cancel_task
+
         thread_key = (channel_id, thread_ts)
         self.usage_locks.pop(thread_key, None)
         task = self.running_usage_tasks.pop(thread_key, None)
-        if task and not task.done():
-            task.cancel()
+        safe_cancel_task(task)
         self.pending_usage_updates.pop(thread_key, None)
         self.pending_usage_completed.pop(thread_key, None)
 
     def reset_runtime_state(self) -> None:
         """Cleans up all in-memory runtime locks and tasks across all threads."""
+        from core.task_utils import safe_cancel_task
+
         for task in list(self.running_usage_tasks.values()):
-            if task and not task.done():
-                task.cancel()
+            safe_cancel_task(task)
         self.usage_locks.clear()
         self.running_usage_tasks.clear()
         self.pending_usage_updates.clear()

@@ -173,6 +173,7 @@ class TurnCheckpoint:
     status: str = "ACTIVE"  # "ACTIVE" | "PENDING" | "RESUMING" | "RESUMED" | "RESOLVED" | "ABANDONED" | "EXPIRED"
     hitl_request_id: str | None = None
     prompt: str = ""
+    my_generation: int | None = None
     created_at: float = field(default_factory=time.time)
     expires_at: float = field(default_factory=lambda: time.time() + 86400.0)
 
@@ -186,6 +187,7 @@ class TurnCheckpoint:
             "pause_reason": self.pause_reason,
             "hitl_request_id": self.hitl_request_id,
             "prompt": self.prompt,
+            "my_generation": self.my_generation,
             "messages": self.messages,
             "pending_tool_call": self.pending_tool_call,
             "active_tools": self.active_tools,

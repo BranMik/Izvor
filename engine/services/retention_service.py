@@ -11,6 +11,7 @@ import logging
 import shutil
 import threading
 import time
+from typing import Any
 
 from config_store.system_settings import (
     get_retention_checkpoints_days,
@@ -122,7 +123,7 @@ def prune_expired_records(
     return pruned_counts
 
 
-def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
+def forget_thread(channel_id: str, thread_ts: str, *, caller_task: Any | None = None) -> dict[str, int]:
     """
     Atomically purges all rows for (channel_id, thread_ts) across SQLite tables,
     deletes flat history files, cleans in-memory thread state, and emits an audit event.
@@ -214,29 +215,43 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
         logger.debug(f"[RETENTION] Error removing downloads subdir for {thread_identifier}: {de}")
     purged_counts["downloads"] = downloads_deleted
 
+    # Evict buffered and persisted telemetry traces for this thread session (CB-08 / TF-02)
+    try:
+        from services.telemetry import clear_turn_traces
+
+        clear_turn_traces(session_id=thread_identifier)
+    except Exception as te:  # noqa: BLE001
+        logger.warning(f"[RETENTION] Error clearing telemetry traces for {thread_identifier}: {te}")
+
     # Clear guardrail LRU embedding cache
     try:
         from services.security.guardrail import guardrail_service
 
         guardrail_service.clear_cache()
     except Exception as ge:  # noqa: BLE001
-        logger.debug(f"[RETENTION] Error clearing guardrail cache for {thread_identifier}: {ge}")
+        logger.warning(f"[RETENTION] Error clearing guardrail cache for {thread_identifier}: {ge}")
 
     # Clear in-memory thread state and tracking via registered purge hooks (decouples L2 from L3)
+    import inspect
+
     with _purge_hooks_lock:
         hooks_snapshot = list(_thread_purge_hooks.items())
     for hook_name, hook_fn in hooks_snapshot:
         try:
-            hook_fn(cid, tts)
+            sig = inspect.signature(hook_fn)
+            if "skip_task" in sig.parameters:
+                hook_fn(cid, tts, skip_task=caller_task)
+            else:
+                hook_fn(cid, tts)
         except Exception as he:  # noqa: BLE001
-            logger.debug(f"[RETENTION] Error executing thread purge hook '{hook_name}' for {thread_identifier}: {he}")
+            logger.warning(f"[RETENTION] Error executing thread purge hook '{hook_name}' for {thread_identifier}: {he}")
 
     try:
         from pipeline.spend_governance import spend_governance
 
         spend_governance.clear_session(f"{cid}:{tts}")
     except Exception as sge:  # noqa: BLE001
-        logger.debug(f"[RETENTION] Error clearing spend_governance for {thread_identifier}: {sge}")
+        logger.warning(f"[RETENTION] Error clearing spend_governance for {thread_identifier}: {sge}")
 
     # Emit audit event
     total_records = sum(purged_counts.values())

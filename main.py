@@ -185,6 +185,25 @@ async def _drain_active_tasks_and_close_db(timeout: float = 5.0) -> None:
             logger.warning("[MAIN] Timed out draining %d active tasks during shutdown", len(active_snapshot))
 
     try:
+        from services.audit_logger import audit_logger
+
+        audit_tasks = [t for t in list(getattr(audit_logger, "_background_audit_tasks", ())) if not t.done()]
+        if audit_tasks:
+            await asyncio.wait_for(
+                asyncio.gather(*audit_tasks, return_exceptions=True),
+                timeout=2.0,
+            )
+    except (ImportError, TimeoutError, Exception) as audit_drain_err:  # noqa: BLE001
+        logger.debug(f"[MAIN] Audit task drain note: {audit_drain_err}")
+
+    try:
+        from services.telemetry import drain_turn_traces
+
+        await drain_turn_traces(timeout=2.0)
+    except (ImportError, Exception) as trace_drain_err:  # noqa: BLE001
+        logger.debug(f"[MAIN] Telemetry trace drain note: {trace_drain_err}")
+
+    try:
         db_manager.close_all_connections()
     except OSError as db_err:
         logger.warning(f"[MAIN] Error closing database connections during shutdown: {db_err}")

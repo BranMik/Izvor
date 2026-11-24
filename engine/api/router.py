@@ -134,16 +134,20 @@ async def trigger_rag_reconciliation(
 
     try:
         stats = await sync_engine.reconcile()
+        errors = stats.get("errors") or []
+        audit_status = "PARTIAL_FAILURE" if errors else "SUCCESS"
+        audit_severity = "WARNING" if errors else "INFO"
+        resp_status = "reconciliation_partial_failure" if errors else "reconciliation_complete"
         log_audit_event(
             event_type="RAG_RECONCILE_COMPLETED",
             actor={"type": "admin_user", "id": admin_user},
             action="reconcile_rag_knowledge",
             target="rag_knowledge/",
             details={"source": "api_endpoint", "stats": stats},
-            severity="INFO",
-            status="SUCCESS",
+            severity=audit_severity,
+            status=audit_status,
         )
-        return RagReconcileResponse(status="reconciliation_complete", stats=stats)
+        return RagReconcileResponse(status=resp_status, stats=stats)
     except Exception as e:
         log_audit_event(
             event_type="RAG_RECONCILE_FAILED",

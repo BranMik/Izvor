@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 from config_store.agent_settings import settings_manager
@@ -87,23 +88,57 @@ class ControlPlaneHandler:
         fn_name: str,
         fn_args: dict[str, Any],
         ctx: TurnContext,
-    ) -> None:
-        """Mutates TurnContext control-plane state after a non-errored control-plane tool invocation."""
+    ) -> str | None:
+        """
+        Mutates TurnContext control-plane state after a non-errored control-plane tool invocation.
+        Returns a structured JSON error string if runtime validation rejects the tool arguments, or None.
+        """
         if fn_name == "nominate_next_speaker":
             from pipeline.entity_resolver import entity_resolver
 
             nom_agent = fn_args.get("agent_name")
             nom_str = str(nom_agent).strip() if nom_agent else ""
+            if not nom_str:
+                return json.dumps({
+                    "isError": True,
+                    "status": "rejected",
+                    "error": "agent_name must be non-empty.",
+                })
             resolved_nom = entity_resolver.resolve_agent_name(nom_str) or nom_str
-            if nom_str and resolved_nom != ctx.agent_key:
-                ctx.control.nomination = nom_str
-                ctx.control.nomination_rationale = str(fn_args.get("rationale", "")).strip()
+            if resolved_nom == ctx.agent_key:
+                return None
+            eligible = list(getattr(ctx, "eligible_remaining_agents", None) or [])
+            if eligible:
+                eligible_canon = {entity_resolver.resolve_agent_name(a) or a for a in eligible}
+                if resolved_nom not in eligible_canon:
+                    return json.dumps({
+                        "isError": True,
+                        "status": "rejected",
+                        "error": f"Agent '{nom_str}' is not an eligible remaining speaker.",
+                    })
+            ctx.control.nomination = nom_str
+            ctx.control.nomination_rationale = str(fn_args.get("rationale", "")).strip()
         elif fn_name == "request_user_clarification":
+            question = str(fn_args.get("question", "")).strip()
+            if not question:
+                return json.dumps({
+                    "isError": True,
+                    "status": "rejected",
+                    "error": "Clarification question must be non-empty.",
+                })
             ctx.control.clarification_requested = True
-            ctx.control.clarification_question = str(fn_args.get("question", "")).strip()
+            ctx.control.clarification_question = question
             ctx.output.halted = True
         elif fn_name == "signal_consensus_convergence":
+            summary = str(fn_args.get("summary_of_agreement", "")).strip()
+            if not summary:
+                return json.dumps({
+                    "isError": True,
+                    "status": "rejected",
+                    "error": "summary_of_agreement must be non-empty.",
+                })
             ctx.control.consensus_signaled = True
-            ctx.control.consensus_summary = str(fn_args.get("summary_of_agreement", "")).strip()
+            ctx.control.consensus_summary = summary
             thread_state_manager.set_consensus_reached(ctx.input.channel_id, ctx.input.thread_ts, True)
+        return None
 

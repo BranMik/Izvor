@@ -136,6 +136,23 @@ async def _handle_resume_sequence(
             )
             return None
 
+        active_hitl = turn_checkpoint_store.get_latest_checkpoint_for_thread(
+            channel_id, thread_ts, pause_reason="hitl"
+        )
+        if active_hitl is not None:
+            if user_id:
+                background_tasks.add_task(
+                    post_ephemeral_to_slack,
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    text=(
+                        "⚠️ A pending HITL tool approval is active on this thread. "
+                        "Please Approve or Deny it before resuming the sequence."
+                    ),
+                    thread_ts=thread_ts,
+                )
+            return None
+
         msg = payload.get("message", {})
         if msg and msg.get("ts"):
             background_tasks.add_task(
@@ -154,7 +171,11 @@ async def _handle_resume_sequence(
             severity="INFO",
         )
 
-        chk = turn_checkpoint_store.get_latest_checkpoint_for_thread(channel_id, thread_ts)
+        thread_state_manager.clear_stop(channel_id, thread_ts)
+        chk = turn_checkpoint_store.get_latest_checkpoint_for_thread(
+            channel_id, thread_ts, pause_reason="circuit_breaker"
+        )
+        resumed_history: list[dict[str, Any]] | None = None
         if chk and chk.pause_reason == "circuit_breaker":
             resume_prompt = (
                 chk.prompt
@@ -186,6 +207,7 @@ async def _handle_resume_sequence(
 
             if not turn_checkpoint_store.claim_for_resume(chk.checkpoint_id):
                 return None
+            resumed_history = list(chk.accumulated_history) if chk.accumulated_history else None
             turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
             target_agent = chk.agent_key
             remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
@@ -200,15 +222,18 @@ async def _handle_resume_sequence(
             remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
             target_agent = remaining[0] if remaining else None
 
-        task_coro = orchestrate_discussion(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            raw_text=resume_prompt,
-            user_id=user_id,
-            bot_user_id=None,
-            target_agent_override=target_agent,
-            is_bot_trigger=True,
-        )
+        orch_kwargs: dict[str, Any] = {
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+            "raw_text": resume_prompt,
+            "user_id": user_id,
+            "bot_user_id": None,
+            "target_agent_override": target_agent,
+            "is_bot_trigger": True,
+        }
+        if resumed_history is not None:
+            orch_kwargs["accumulated_history"] = resumed_history
+        task_coro = orchestrate_discussion(**orch_kwargs)
         thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, task_coro)
     return None
 

@@ -117,24 +117,10 @@ class RoundEvidenceStore:
         if not result or not str(result).strip():
             return None
 
-        # Check for error payload
-        res_str = str(result).strip()
-        lower_res = res_str.lower()
-        if lower_res.startswith(("permission denied", "error:", "error ")) or "error" in lower_res[:50]:
-            try:
-                parsed = json.loads(res_str)
-                if isinstance(parsed, dict) and ("error" in parsed or "error_code" in parsed):
-                    return None
-            except (json.JSONDecodeError, ValueError):
-                if lower_res.startswith(("permission denied", "error:", "error ")):
-                    return None
-        if lower_res.startswith("{"):
-            try:
-                parsed = json.loads(res_str)
-                if isinstance(parsed, dict) and ("error" in parsed or "error_code" in parsed):
-                    return None
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.debug("Evidence store JSON parse check bypassed: %s", e)
+        from core.security_utils import is_tool_error_payload
+
+        if is_tool_error_payload(result):
+            return None
 
         args_dict = (
             arguments

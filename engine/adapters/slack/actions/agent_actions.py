@@ -261,6 +261,7 @@ async def _handle_restore_from_backup(
         action="restore_from_backup",
         target="agent_settings_backup",
         details={"success": success},
-        severity="WARNING",
+        severity="WARNING" if success else "CRITICAL",
+        status="SUCCESS" if success else "FAILURE",
     )
     return None

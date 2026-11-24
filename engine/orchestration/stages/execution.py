@@ -136,14 +136,21 @@ class ExecutionStage:
             )
 
             file_ctx = getattr(ctx, "file_context", None)
-            file_name = file_ctx.get("file_name") if isinstance(file_ctx, dict) else None
-            auth_agents = file_ctx.get("authorized_agents") if isinstance(file_ctx, dict) else None
-            unauthorized_file = bool(auth_agents is not None and ctx.agent_key not in auth_agents)
+            file_content = str(file_ctx.get("content", "") or "") if isinstance(file_ctx, dict) else ""
+            file_failed = file_content.startswith(("[Error reading file:", "[No attached file found"))
+            if file_failed:
+                file_name = None
+                unauthorized_file = False
+                file_req_skill = None
+            else:
+                file_name = file_ctx.get("file_name") if isinstance(file_ctx, dict) else None
+                auth_agents = file_ctx.get("authorized_agents") if isinstance(file_ctx, dict) else None
+                unauthorized_file = bool(auth_agents is not None and ctx.agent_key not in auth_agents)
+                file_req_skill = file_ctx.get("required_skill") if isinstance(file_ctx, dict) else None
 
             missing_skills = [
                 s for s in (getattr(ctx, "missing_required_skills", None) or []) if s not in ctx.authorized_skills
             ]
-            file_req_skill = file_ctx.get("required_skill") if isinstance(file_ctx, dict) else None
             if file_req_skill and file_req_skill not in ctx.authorized_skills and file_req_skill not in missing_skills:
                 missing_skills.append(file_req_skill)
 
@@ -257,6 +264,28 @@ class ExecutionStage:
             except (SlackApiError, OSError, RuntimeError, ValueError, TypeError) as e:
                 logger.warning(f"[ROUTER] Failed to post intermediate tool status: {e}")
 
+        async def _cleanup_intermediate_on_superseded() -> None:
+            if not ctx.intermediate_msg_ts:
+                return
+            try:
+                ws_adapter = getattr(self._deps, "workspace_adapter", None)
+                if ws_adapter is not None:
+                    await ws_adapter.update_agent_turn(
+                        channel_id=ctx.input.channel_id,
+                        message_ts=ctx.intermediate_msg_ts,
+                        text="_⏹️ Superseded by a newer message._",
+                    )
+                else:
+                    update_fn = getattr(self._deps, "update_message_fn", None)
+                    if update_fn is not None:
+                        await update_fn(
+                            channel_id=ctx.input.channel_id,
+                            ts=ctx.intermediate_msg_ts,
+                            text="_⏹️ Superseded by a newer message._",
+                        )
+            except Exception as upd_err:  # noqa: BLE001
+                logger.debug(f"[ROUTER] Failed cleaning intermediate message on supersession: {upd_err}")
+
         delay_task = asyncio.create_task(_delayed_intermediate_post())
 
         try:
@@ -271,6 +300,7 @@ class ExecutionStage:
             )
 
             if response is None and ctx.is_superseded():
+                await _cleanup_intermediate_on_superseded()
                 return {"ok": False, "cancelled": True, "reason": "superseded"}
 
             ctx.add_usage(response)
@@ -279,6 +309,7 @@ class ExecutionStage:
 
             if ctx.is_superseded():
                 logger.info(f"[ROUTER] Thread {ctx.thread_key} turn was superseded after LLM call. Aborting.")
+                await _cleanup_intermediate_on_superseded()
                 return {"ok": False, "cancelled": True, "reason": "superseded"}
 
             if not (hasattr(response, "choices") and response.choices):

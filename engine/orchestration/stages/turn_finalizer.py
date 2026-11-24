@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import TYPE_CHECKING, Any
@@ -142,16 +143,26 @@ class TurnFinalizer:
             messages=ctx.messages,
         )
         exec_retry_fn = getattr(self.deps, "llm_executor", None) or execute_llm_with_retry
-        synthesis_res = await exec_retry_fn(
-            litellm.acompletion,
-            synthesis_kwargs,
-            agent_key=f"{ctx.agent_key} synthesis",
-            thread_key=ctx.thread_key,
-            is_superseded_fn=ctx.is_superseded,
-            max_attempts=max(1, int(system_settings_manager.get_tool_call_num_retries()) + 1),
-            allow_503_immediate_retry=allow_503_immediate,
-            turn_token_mapping=ctx.turn_token_mapping,
-        )
+        synth_timeout = min(30.0, float(getattr(self.deps, "timeout_secs", None) or 30.0))
+        try:
+            synthesis_res = await asyncio.wait_for(
+                exec_retry_fn(
+                    litellm.acompletion,
+                    synthesis_kwargs,
+                    agent_key=f"{ctx.agent_key} synthesis",
+                    thread_key=ctx.thread_key,
+                    is_superseded_fn=ctx.is_superseded,
+                    max_attempts=max(1, int(system_settings_manager.get_tool_call_num_retries()) + 1),
+                    allow_503_immediate_retry=allow_503_immediate,
+                    turn_token_mapping=ctx.turn_token_mapping,
+                ),
+                timeout=synth_timeout,
+            )
+        except Exception as synth_err:  # noqa: BLE001
+            logger.warning(
+                f"[ROUTER] Post-timeout synthesis failed for {ctx.agent_key}: {synth_err}. Falling back to gathered outputs."
+            )
+            synthesis_res = None
         if synthesis_res is None and ctx.is_superseded():
             return {"ok": False, "cancelled": True, "reason": "superseded"}
         if synthesis_res is not None and hasattr(synthesis_res, "choices") and synthesis_res.choices:
@@ -159,6 +170,16 @@ class TurnFinalizer:
             synthesized_msg = synthesis_res.choices[0].message
             self.finalize_message(ctx, synthesized_msg)
         if not ctx.output.final_text and timed_out_with_evidence:
-            ctx.output.final_text = "⚠️ _Tool execution timed out. Continuing discussion._"
+            tool_snippets = [
+                str(m.get("content", ""))[:200]
+                for m in (ctx.messages or [])
+                if isinstance(m, dict) and m.get("role") == "tool" and m.get("content")
+            ]
+            if tool_snippets:
+                ctx.output.final_text = (
+                    "⚠️ _Tool synthesis timed out. Partial tool evidence gathered before timeout._"
+                )
+            else:
+                ctx.output.final_text = "⚠️ _Tool execution timed out. Continuing discussion._"
         return None
 

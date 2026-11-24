@@ -49,9 +49,38 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
         thread_granted_skills=set(thread_skills) | set(active_agent_skills),
     )
 
-    # 2. Mark approval consumed BEFORE execution (fail-closed) & execute tool deterministically
+    # 2. Fetch checkpoint first so we can verify generation and thread token_mapping into tool execution
+    from services.turn_checkpoint_store import turn_checkpoint_store
+    from orchestration.agent_router import continue_discussion_from_turn_result
+
+    chk = turn_checkpoint_store.get_checkpoint_by_hitl_request(req.request_id)
+    if thread_state_manager.is_stopped(channel_id, thread_ts):
+        logger.info(
+            f"[HITL] Thread {channel_id}:{thread_ts} was stopped; skipping approved tool '{fn_name}' execution."
+        )
+        if chk is not None:
+            turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
+        return
+    if chk is not None:
+        current_gen = thread_state_manager.get_generation(channel_id, thread_ts)
+        chk_gen = getattr(chk, "my_generation", None)
+        if chk_gen is not None and chk_gen != current_gen:
+            logger.info(
+                f"[HITL] Checkpoint '{chk.checkpoint_id}' generation ({chk_gen}) "
+                f"is superseded by thread generation ({current_gen}). Skipping approved tool execution."
+            )
+            turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
+            return
+
+    active_token_mapping: dict[str, str] = dict(chk.token_mapping or {}) if chk else {}
+
+    # 3. Mark approval consumed BEFORE execution (fail-closed) & execute tool deterministically
     try:
         from core.domain import ToolPrincipal
+        from orchestration.stages.tool_loop_runner import (
+            _should_unmask_tool_args,
+            _unmask_argument_values,
+        )
         from services.hitl import consume_tool_approval
 
         principal = ToolPrincipal(kind="agent", id=agent_name)
@@ -83,19 +112,28 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
                 logger.error(f"[HITL] Failed posting consumption failure notice: {post_err}")
             return
 
+        exec_fn_args = (
+            _unmask_argument_values(fn_args, active_token_mapping)
+            if (active_token_mapping and _should_unmask_tool_args(fn_name))
+            else fn_args
+        )
         tool_result = await skill_registry.execute_tool_async(
             fn_name,
-            fn_args,
+            exec_fn_args,
             authorized_skills=effective_skills,
             expired_skills=expired_skills,
             ttl_hours=ttl_hours,
             agent_name=principal,
+            token_mapping=active_token_mapping,
         )
     except Exception as e:  # noqa: BLE001 - Resilient tool execution error capture
         logger.error(f"[HITL] Error executing tool '{fn_name}': {e}", exc_info=True)
         tool_result = f"Error executing tool '{fn_name}': {e}"
 
-    # 3. Post tool execution result to Slack thread so all participants have visibility
+    if chk is not None and active_token_mapping:
+        chk.token_mapping = dict(active_token_mapping)
+
+    # 4. Post tool execution result to Slack thread so all participants have visibility
     display_res = str(tool_result)
     if len(display_res) > 2000:
         display_res = display_res[:2000] + "\n... [truncated]"
@@ -109,11 +147,7 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
     except Exception as e:  # noqa: BLE001 - Slack notification delivery boundary
         logger.error(f"[HITL] Failed to post tool result to Slack: {e}")
 
-    # 4. Resume the calling agent with the result context
-    from services.turn_checkpoint_store import turn_checkpoint_store
-    from orchestration.agent_router import continue_discussion_from_turn_result
-
-    chk = turn_checkpoint_store.get_checkpoint_by_hitl_request(req.request_id)
+    # 5. Resume the calling agent with the result context
     if not chk:
         logger.warning(
             f"[HITL] No checkpoint found matching request_id '{req.request_id}' in {(channel_id, thread_ts)}. "

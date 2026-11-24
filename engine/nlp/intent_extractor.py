@@ -229,14 +229,30 @@ class IntentExtractor:
 
             parsed = json.loads(cleaned_content)
 
+            from core.registry import get_skill_registry
+
+            skill_registry = get_skill_registry()
+            allowed_inferred_skills = {s.name for s in skill_registry.get_auto_detect_skills()} | {"exclude_agents"}
+            registered_mod_skills = {
+                s.name for s in skill_registry.list_skills() if getattr(s, "instructions", "")
+            }
+            allowed_modifier_keys = (
+                set(INT_MODIFIER_BOUNDS.keys())
+                | {"excluded_agents", "included_agents", "file_use", "target_file", "language"}
+                | registered_mod_skills
+            )
+
             actions: list[ActionDirective] = []
             modifiers: dict[str, Any] = {}
 
-            # 1. Modifiers from structured "modifiers" sub-dict (int modifiers coerced + clamped)
+            # 1. Modifiers from structured "modifiers" sub-dict (strict allowlist + sanitization)
             raw_mods = parsed.get("modifiers")
             if isinstance(raw_mods, dict):
                 for k, v in raw_mods.items():
                     if v is None:
+                        continue
+                    if k not in allowed_modifier_keys:
+                        logger.warning(f"[INTENT EXTRACTOR] Dropping unknown inferred modifier key '{k}'")
                         continue
                     bounds = INT_MODIFIER_BOUNDS.get(k)
                     if bounds is not None:
@@ -245,13 +261,11 @@ class IntentExtractor:
                             modifiers[k] = coerced
                     elif k in ("excluded_agents", "included_agents"):
                         modifiers[k] = _resolve_agent_names(v)
+                    elif isinstance(v, str):
+                        sanitized_val = "".join(ch for ch in v if ord(ch) >= 32 and ch not in "<>")
+                        modifiers[k] = sanitized_val.strip()[:128]
                     else:
                         modifiers[k] = v
-
-            from core.registry import get_skill_registry
-
-            skill_registry = get_skill_registry()
-            allowed_inferred_skills = {s.name for s in skill_registry.get_auto_detect_skills()} | {"exclude_agents"}
 
             # 2. Actions from structured "actions" list
             raw_actions = parsed.get("actions")

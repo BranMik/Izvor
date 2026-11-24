@@ -28,7 +28,8 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any]:
             "error": "Missing channel_id or thread_ts.",
         }
 
-    summary = await asyncio.to_thread(forget_thread, channel_id, thread_ts)
+    caller_task = asyncio.current_task()
+    summary = await asyncio.to_thread(forget_thread, channel_id, thread_ts, caller_task=caller_task)
     await log_audit_event_async(
         event_type="GDPR_THREAD_FORGOTTEN",
         actor={"type": "user", "id": user_id},

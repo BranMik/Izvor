@@ -88,6 +88,7 @@ class ManifestManager:
             logger.error(f"[RAG Manifest] Failed to persist manifest: {e}")
             if tmp_path.exists():
                 tmp_path.unlink(missing_ok=True)
+            raise
 
     def get_config_hash(self) -> str | None:
         """Returns persisted RAG configuration hash stored under META_KEY, or None."""

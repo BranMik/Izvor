@@ -146,6 +146,12 @@ def handle_nominate_next_speaker(
 
 def handle_request_user_clarification(args: dict[str, Any], **kwargs: Any) -> str:
     question = str(args.get("question", "")).strip()
+    if not question:
+        return json.dumps({
+            "isError": True,
+            "status": "rejected",
+            "error": "Clarification question must be non-empty.",
+        })
     return json.dumps({
         "status": "clarification_requested",
         "question": question,
@@ -155,6 +161,12 @@ def handle_request_user_clarification(args: dict[str, Any], **kwargs: Any) -> st
 def handle_signal_consensus_convergence(args: dict[str, Any], **kwargs: Any) -> str:
     summary = str(args.get("summary_of_agreement", "")).strip()
     dissent = str(args.get("dissenting_points", "")).strip()
+    if not summary:
+        return json.dumps({
+            "isError": True,
+            "status": "rejected",
+            "error": "summary_of_agreement must be non-empty.",
+        })
     return json.dumps({
         "status": "consensus_signaled",
         "summary_of_agreement": summary,

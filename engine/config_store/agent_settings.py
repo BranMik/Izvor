@@ -422,17 +422,17 @@ class AgentSettingsManager:
         end_chain = [available[-1]] if len(available) > 1 else list(start_chain)
         return start_chain, end_chain
 
-    def persist_active_workflow(self) -> None:
+    def persist_active_workflow(self) -> bool:
         """Persists current mode and chains to the active workflow JSON file."""
         wf_id = self.workflow_config or self.active_workflow_id
         if not wf_id:
-            return
+            return False
         clean_id = slugify(wf_id)
         if clean_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
             logger.info(
                 f"[SETTINGS] Active workflow '{clean_id}' is a reserved system default preset. Skipping file persistence."
             )
-            return
+            return False
 
         existing = self.workflow_manager.get_workflow(clean_id)
         name = existing.name if existing else clean_id.replace("_", " ").title()
@@ -465,6 +465,7 @@ class AgentSettingsManager:
                 self._last_workflow_mtime = wf_file.stat().st_mtime
             except OSError as e:
                 logger.debug(f"[SETTINGS] Error checking workflow mtime: {e}")
+        return True
 
     def _parse_and_validate_payload(self, data: dict[str, Any], source_name: str) -> bool:
         """Parses and validates debate agent settings payload from JSON."""
@@ -841,14 +842,16 @@ class AgentSettingsManager:
                 logger.error(f"[SETTINGS] Error executing restore from backup: {e}")
                 return False
 
-    def save(self) -> None:
+    def save(self) -> bool:
         """
         Saves current enabled debate agents, agent configurations,
         and workflow reference to config/settings/agent_settings.json.
         Does NOT save orchestrator or system agents (saved via save_system_agent_settings).
+        Returns True when persisted successfully; rolls back in-memory _raw_data on error.
         """
         wf_ref = self.workflow_config or self.active_workflow_id
-        data = copy.deepcopy(self._raw_data) if hasattr(self, "_raw_data") and isinstance(self._raw_data, dict) else {}
+        prev_raw = copy.deepcopy(self._raw_data) if hasattr(self, "_raw_data") and isinstance(self._raw_data, dict) else {}
+        data = copy.deepcopy(prev_raw)
         data.pop("system_agents", None)
         data.pop("orchestrator", None)
 
@@ -875,12 +878,11 @@ class AgentSettingsManager:
             if k not in self.agents_config:
                 del data["agents"][k]
 
-        self._raw_data = copy.deepcopy(data)
-
         with self._save_lock:
             target_file = self.active_settings_file
             try:
                 self._atomic_write_json(target_file, data)
+                self._raw_data = copy.deepcopy(data)
                 self.is_running_from_backup = False
                 self.backup_error_reason = None
                 try:
@@ -893,10 +895,13 @@ class AgentSettingsManager:
                 )
                 self.check_and_update_backup()
                 _notify_agents_changed()
+                return True
             except (OSError, TypeError, ValueError) as e:
+                self._raw_data = prev_raw
                 logger.error(f"[SETTINGS] Error saving agent settings: {e}")
+                return False
 
-    def save_system_agent_settings(self) -> None:
+    def save_system_agent_settings(self) -> bool:
         """Saves current orchestrator and system agents configuration to engine/settings/system_agent_settings.json."""
         with self._save_lock:
             data = {
@@ -914,8 +919,10 @@ class AgentSettingsManager:
                 self._atomic_write_json(target_file, data)
                 self.check_and_update_system_agent_backup()
                 logger.info(f"[SETTINGS] Saved system agent settings to {target_file.name}")
+                return True
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
                 logger.error(f"[SETTINGS] Error saving system agent settings: {e}")
+                return False
 
     def sync_if_modified(self) -> bool:
         """
@@ -1359,8 +1366,8 @@ def get_workflow_snapshot() -> dict[str, Any]:
     }
 
 
-def persist_active_workflow() -> None:
-    settings_manager.persist_active_workflow()
+def persist_active_workflow() -> bool:
+    return settings_manager.persist_active_workflow()
 
 
 def get_challenger_agent() -> str:

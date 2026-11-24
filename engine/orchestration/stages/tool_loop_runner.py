@@ -90,20 +90,9 @@ def _remask_with_mapping(val: Any, mapping: dict[str, str]) -> Any:
 
 def _is_tool_error(result: Any) -> bool:
     """Returns True when a tool result represents an error or denied execution."""
-    if isinstance(result, Exception):
-        return True
-    if isinstance(result, dict):
-        if result.get("is_error") is True:
-            return True
-        if "error" in result and len(result) <= 2:
-            return True
-    if isinstance(result, str):
-        lowered = result.strip().lower()
-        if lowered.startswith(("error:", "tool execution error:", "permission denied", "permissionerror:")):
-            return True
-        if lowered.startswith('{"error":') and len(result) < 300:
-            return True
-    return False
+    from core.security_utils import is_tool_error_payload
+
+    return is_tool_error_payload(result)
 
 
 class ToolLoopRunner:
@@ -202,7 +191,16 @@ class ToolLoopRunner:
             )
             return bool(tripped)
         except (ValueError, TypeError, KeyError, RuntimeError, AttributeError, OSError, sqlite3.Error) as e:
-            logger.debug(f"[EXECUTION] Error checking mid-turn budget: {e}")
+            gov_active = True
+            try:
+                from config_store.app_settings import get_daily_budget_usd, is_circuit_breaker_enabled
+
+                gov_active = bool(is_circuit_breaker_enabled() or get_daily_budget_usd() > 0)
+            except Exception:  # noqa: BLE001
+                gov_active = True
+            if gov_active:
+                logger.warning(f"[EXECUTION] Error checking mid-turn budget; failing closed: {e}")
+                return True
             return False
 
     def save_execution_checkpoint(
@@ -235,6 +233,7 @@ class ToolLoopRunner:
                 pause_reason=pause_reason,
                 hitl_request_id=hitl_request_id,
                 prompt=safe_prompt,
+                my_generation=getattr(ctx, "my_generation", None),
                 messages=safe_messages,
                 pending_tool_call=safe_pending,
                 active_tools=active_tools or [],
@@ -413,8 +412,11 @@ class ToolLoopRunner:
                             if requires_hitl:
                                 from services.hitl import consume_tool_approval, request_human_approval
 
+                                mapping = dict(getattr(ctx, "turn_token_mapping", {}) or {})
+                                hitl_args = _remask_with_mapping(raw_args, mapping) if mapping else raw_args
+
                                 if not consume_tool_approval(
-                                    ctx.input.channel_id, ctx.input.thread_ts, fn_name, fn_args, agent_name=ctx.agent_key
+                                    ctx.input.channel_id, ctx.input.thread_ts, fn_name, hitl_args, agent_name=ctx.agent_key
                                 ):
                                     effective_skill_name = skill_def.name if skill_def else (s_name or "mcp_tool")
                                     req_id = await request_human_approval(
@@ -423,7 +425,7 @@ class ToolLoopRunner:
                                         ctx.agent_key,
                                         effective_skill_name,
                                         fn_name,
-                                        fn_args,
+                                        hitl_args,
                                         initiator_user_id=ctx.input.user_id,
                                     )
                                     tool_result_str = (
@@ -474,7 +476,7 @@ class ToolLoopRunner:
                                         pending_tool_call={
                                             "id": getattr(tool_call, "id", None),
                                             "name": fn_name,
-                                            "args": fn_args,
+                                            "args": hitl_args,
                                         },
                                         hitl_request_id=req_id,
                                     )
@@ -521,18 +523,21 @@ class ToolLoopRunner:
                         s_name = fn_args.get("skill_name", "").strip()
                     else:
                         s_name = skill_registry.find_skill_for_tool(fn_name) or fn_name
-                    if s_name and not _is_tool_error(tool_result):
-                        if s_name not in ctx.output.skills_used:
-                            ctx.output.skills_used.append(s_name)
 
                     if not _is_tool_error(tool_result):
-                        self.control_plane_handler.apply_tool_effect(
+                        cp_err = self.control_plane_handler.apply_tool_effect(
                             fn_name=fn_name,
                             fn_args=fn_args,
                             ctx=ctx,
                         )
+                        if cp_err is not None:
+                            tool_result = cp_err
 
-                    from core.security_utils import wrap_untrusted_content
+                    if s_name and not _is_tool_error(tool_result):
+                        if s_name not in ctx.output.skills_used:
+                            ctx.output.skills_used.append(s_name)
+
+                    from core.security_utils import is_tool_error_payload, wrap_untrusted_content
                     from services.security.guardrail import guardrail_service
 
                     CONTROL_PLANE_OR_META_TOOLS = (
@@ -551,14 +556,13 @@ class ToolLoopRunner:
                     tool_result_str = wrap_untrusted_content(screened_str)
 
                     if cached_evidence is None and not getattr(ctx.output, "halted", False):
-                        res_str = screened_str if isinstance(tool_result, str) else screened_str
-                        if not (res_str.strip().lower().startswith("permission denied") or '"error":' in res_str):
+                        if not is_tool_error_payload(tool_result) and not is_tool_error_payload(screened_str):
                             thread_state_manager.add_round_evidence(
                                 channel_id=ctx.input.channel_id,
                                 thread_ts=ctx.input.thread_ts,
                                 tool_name=fn_name,
                                 arguments=fn_args,
-                                result=res_str,
+                                result=screened_str,
                                 agent_key=ctx.agent_key,
                             )
 
@@ -577,9 +581,7 @@ class ToolLoopRunner:
                     logger.info(
                         f"[ROUTER] Thread {ctx.thread_key} turn was superseded during tool execution. Aborting."
                     )
-                    raise asyncio.CancelledError(
-                        f"Thread {ctx.thread_key} turn was superseded during tool execution."
-                    )
+                    return {"ok": False, "cancelled": True, "reason": "superseded"}
 
                 is_paused = bool(getattr(ctx.output, "waiting_hitl", False) or getattr(ctx.output, "halted", False))
                 follow_up_kwargs = build_completion_kwargs(
@@ -601,7 +603,7 @@ class ToolLoopRunner:
                 )
                 if follow_up is None:
                     if ctx.is_superseded():
-                        raise asyncio.CancelledError(f"Thread {ctx.thread_key} turn was superseded during follow-up.")
+                        return {"ok": False, "cancelled": True, "reason": "superseded"}
                     tool_calls = None
                     break
 

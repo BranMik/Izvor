@@ -153,3 +153,11 @@ async def test_internal_revisor_handles_candidate_exception_without_losing_sibli
     # Keep import check quiet if AsyncSlackResponse isn't directly constructed here
     assert AsyncSlackResponse is not None
 
+    # TKT-1415: CancelledError from a candidate verifier must propagate (not be swallowed)
+    async def _cancel_verify(*, speaker, **kwargs):
+        raise asyncio.CancelledError()
+
+    with patch("orchestration.revisor_service._verify_single_candidate", side_effect=_cancel_verify):
+        with pytest.raises(asyncio.CancelledError):
+            await run_internal_revisor(ctx)
+
