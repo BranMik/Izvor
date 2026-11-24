@@ -174,7 +174,7 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
 async def test_discussion_scribe_mechanical_word_limit():
     """Verify that DiscussionScribe mechanically truncates brief in Python
 
-    to (scribe_max_words + 50) words if the model exceeds it.
+    using proportional grace scaling (40 + 10 = 50 words) if the model exceeds it.
     """
     history = [
         {"role": "user", "content": "Let's summarize our progress"},
@@ -192,7 +192,7 @@ async def test_discussion_scribe_mechanical_word_limit():
     mock_resp.usage = MagicMock(prompt_tokens=100, completion_tokens=150)
 
     with patch("pipeline.discussion_scribe.scribe.litellm.acompletion", return_value=mock_resp) as mock_litellm:
-        # scribe_max_words = 40 -> cutoff is 40 + 50 = 90 words
+        # scribe_max_words = 40 -> proportional grace = min(50, max(10, 40 // 4)) = 10 -> cutoff = 50
         brief, tokens = await discussion_scribe.generate_brief(
             history=history,
             is_completed=True,
@@ -202,8 +202,8 @@ async def test_discussion_scribe_mechanical_word_limit():
         assert "max_tokens" not in mock_litellm.call_args.kwargs
         assert brief is not None
         brief_words = brief.raw_markdown.split()
-        assert len(brief_words) == 90
-        assert brief_words[-1] == "briefword90"
+        assert len(brief_words) == 50
+        assert brief_words[-1] == "briefword50"
 
 
 @pytest.mark.anyio
@@ -286,4 +286,74 @@ async def test_off_directives_clear_state_and_build_valid_prompt():
     finally:
         set_admin_slack_user_ids_override(None)
         thread_state_manager.cleanup_thread(channel, thread_ts)
+
+
+def test_discussion_scribe_strict_zero_grace_below_20_and_proportional_scaling():
+    """Verifies strict 0 grace below 20, proportional scaling for >= 20, default ceiling preservation, and grace=0 respect."""
+    from pipeline.discussion_scribe.scribe import _compute_scribe_word_cutoff
+
+    assert _compute_scribe_word_cutoff(15, default_max_words=300, grace_buffer=50) == 15
+    assert _compute_scribe_word_cutoff(40, default_max_words=300, grace_buffer=50) == 50
+    assert _compute_scribe_word_cutoff(100, default_max_words=300, grace_buffer=50) == 125
+    assert _compute_scribe_word_cutoff(250, default_max_words=300, grace_buffer=50) == 300
+    assert _compute_scribe_word_cutoff(None, default_max_words=300, grace_buffer=50) == 350
+
+    assert _compute_scribe_word_cutoff(40, default_max_words=300, grace_buffer=0) == 40
+    assert _compute_scribe_word_cutoff(None, default_max_words=300, grace_buffer=0) == 300
+
+
+@pytest.mark.anyio
+async def test_discussion_scribe_compact_prompt_overrides_sections_without_action_items_conflict():
+    """Tight /scribe_max_words <= 60 emits layout override without the contradictory 'core action items only' instruction."""
+    history = [
+        {"role": "user", "content": "Evaluate distributed transaction consistency."},
+        {"role": "assistant", "content": "[SecurityArchitect]: Enforce BFT consensus and fail-closed quorums."},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.choices = [MagicMock(message=MagicMock(content="Compact summary."))]
+    mock_resp.usage = MagicMock(prompt_tokens=80, completion_tokens=10)
+
+    with patch("pipeline.discussion_scribe.scribe.litellm.acompletion", return_value=mock_resp) as mock_litellm:
+        await discussion_scribe.generate_brief(
+            history=history,
+            is_completed=True,
+            scribe_max_words=40,
+        )
+        brief_sys = mock_litellm.call_args.kwargs["messages"][0]["content"]
+        assert "core action items only" not in brief_sys
+        assert "OVERRIDE: The explicit /scribe_max_words 40 directive SUPERSEDES" in brief_sys
+        assert "including any status badge, headings, and speaker tags" in brief_sys
+
+        await discussion_scribe.generate_conclusion(
+            history=history,
+            scribe_max_words=40,
+        )
+        concl_sys = mock_litellm.call_args.kwargs["messages"][0]["content"]
+        assert "OVERRIDE: The explicit /scribe_max_words 40 directive SUPERSEDES" in concl_sys
+        assert "including any status badge, headings, and speaker tags" in concl_sys
+
+
+def test_discussion_scribe_truncation_closes_unbalanced_markdown():
+    """Mechanical Scribe truncation balances open '*' and '**' emphasis without exceeding cutoff."""
+    from pipeline.discussion_scribe.scribe import _apply_word_limit
+
+    # Truncates mid-*italic* span after 15 words (scribe_max_words=15 -> 0 grace)
+    italic_text = (
+        "Summary: *critical distributed consensus failure mode across partitioned quorum nodes "
+        "requiring immediate architectural mitigation and failover steps* extra trailing words"
+    )
+    out_italic = _apply_word_limit(italic_text, max_words=15, default_max_words=300, label="Scribe brief")
+    assert len(out_italic.split()) == 15
+    assert out_italic.endswith("*")
+    assert out_italic.replace("**", "").count("*") % 2 == 0
+
+    # Truncates mid-**bold** span while ignoring leading list bullet '* '
+    bold_text = (
+        "* **Critical distributed consensus failure mode across partitioned quorum nodes "
+        "requiring immediate architectural strict mitigation steps** extra trailing words"
+    )
+    out_bold = _apply_word_limit(bold_text, max_words=15, default_max_words=300, label="Scribe brief")
+    assert len(out_bold.split()) == 15
+    assert out_bold.endswith("**")
+    assert out_bold.count("**") % 2 == 0
 

@@ -179,7 +179,7 @@ def _build_length_instruction(
     directives: list[str] = []
     if scribe_max_words is not None:
         directives.append(
-            f"CRITICAL LENGTH CONSTRAINT: The entire {noun} must strictly NOT exceed {scribe_max_words} words total. Be extremely concise."
+            f"CRITICAL LENGTH OVERRIDE: The entire {noun} (including any status badge, headings, and speaker tags) MUST NOT exceed {scribe_max_words} words total. Be extremely concise."
         )
     if scribe_min_words is not None:
         directives.append(
@@ -188,21 +188,56 @@ def _build_length_instruction(
     return f" {' '.join(directives)}" if directives else ""
 
 
+def _compute_scribe_word_cutoff(
+    max_words: int | None,
+    default_max_words: int,
+    grace_buffer: int | None = None,
+) -> int:
+    """
+    Computes the mechanical word ceiling for Scribe notes.
+    - Default (max_words is None): default_max_words + configured grace buffer.
+    - Explicit tight limits (< 20): 0 grace (strictly enforced).
+    - Explicit limits (>= 20): proportional grace capped at min(configured_grace, max(10, max_words // 4)).
+    """
+    configured_grace = max(0, int(grace_buffer)) if grace_buffer is not None else _get_scribe_grace_buffer()
+    if max_words is None:
+        return max(1, default_max_words + configured_grace)
+    try:
+        effective_max = max(1, int(max_words))
+    except (ValueError, TypeError):
+        return max(1, default_max_words + configured_grace)
+
+    if effective_max < 20:
+        effective_grace = 0
+    else:
+        effective_grace = min(configured_grace, max(10, effective_max // 4))
+    return max(1, effective_max + effective_grace)
+
+
+def _close_unbalanced_inline_markdown(text: str) -> str:
+    """Closes odd '**' or inline '*' markers left open by mechanical truncation without adding words."""
+    if not text:
+        return text
+    closed = text.rstrip()
+    if closed.count("**") % 2 == 1:
+        closed += "**"
+    without_bold = closed.replace("**", "")
+    without_bullets = re.sub(r"^\s*\*\s+", "", without_bold, flags=re.MULTILINE)
+    if without_bullets.count("*") % 2 == 1:
+        closed += "*"
+    return closed
+
+
 def _apply_word_limit(
     text: str,
     max_words: int | None,
     default_max_words: int,
     label: str,
 ) -> str:
-    """Enforces mechanical word ceiling while preserving markdown line breaks and bullet formatting."""
+    """Enforces mechanical word ceiling while preserving markdown line breaks and balanced emphasis."""
     if not text:
         return text
-    try:
-        effective_max = int(max_words) if max_words is not None else default_max_words
-    except (ValueError, TypeError):
-        effective_max = default_max_words
-
-    cutoff = max(1, effective_max + _get_scribe_grace_buffer())
+    cutoff = _compute_scribe_word_cutoff(max_words, default_max_words)
     word_spans = list(re.finditer(r"\S+", text))
     if len(word_spans) <= cutoff:
         return text
@@ -211,7 +246,8 @@ def _apply_word_limit(
         f"[SCRIBE MECHANICAL CUTOFF] {label} exceeded {cutoff} words ({len(word_spans)} words). "
         f"Mechanically truncated to {cutoff} words."
     )
-    return text[: word_spans[cutoff - 1].end()].rstrip()
+    truncated = text[: word_spans[cutoff - 1].end()].rstrip()
+    return _close_unbalanced_inline_markdown(truncated)
 
 
 def _extract_token_counts(resp: Any) -> tuple[int, int]:
@@ -527,12 +563,16 @@ class DiscussionScribe:
 
         extra_len_instruction = _build_length_instruction(scribe_max_words, scribe_min_words, "synthesis note")
 
+        compact_brief_override = (
+            f"OVERRIDE: The explicit /scribe_max_words {scribe_max_words} directive SUPERSEDES all default "
+            "multi-section layouts and per-section word budgets above. Do NOT use multiple section headings, "
+            "and do NOT include consensus decisions, conclusions, or action items. Output a single ultra-concise "
+            f"synthesis (status indicator + core objective + key speaker takeaway) strictly under {scribe_max_words} words total."
+        )
+
         if is_completed:
             if scribe_max_words is not None and scribe_max_words <= 60:
-                structure_req = (
-                    f"Keep it ultra-concise with a brief objective and core action items only. "
-                    f"Do not use multiple verbose section headings. Do NOT include a conclusion. The entire response MUST be under {scribe_max_words} words."
-                )
+                structure_req = compact_brief_override
             else:
                 structure_req = (
                     "Include *Core Objective & Problem Statement* (<=35 words), *Key Perspectives* (<=190 words total, <=30 words per bullet), "
@@ -552,9 +592,15 @@ class DiscussionScribe:
                 f"{extra_len_instruction}"
             )
         elif assistant_turns <= 1:
+            if scribe_max_words is not None and scribe_max_words <= 60:
+                init_structure_req = compact_brief_override
+            else:
+                init_structure_req = (
+                    "Generate the initial concise strategic synthesis note (strictly under 50 words total). "
+                    "State the initial core objective and initial key perspective. Omit any empty sections."
+                )
             status_directive = (
-                "This is the initial turn of the discussion. Generate the initial concise strategic synthesis note (strictly under 50 words total). "
-                "State the initial core objective and initial key perspective. Omit any empty sections. "
+                f"This is the initial turn of the discussion. {init_structure_req} "
                 f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
                 f"{extra_len_instruction}"
@@ -565,10 +611,16 @@ class DiscussionScribe:
                 if scribe_max_words is not None
                 else "strictly under 220 words maximum ceiling"
             )
+            if scribe_max_words is not None and scribe_max_words <= 60:
+                ongoing_structure_req = compact_brief_override
+            else:
+                ongoing_structure_req = (
+                    "Include *Core Objective & Problem Statement* (<=35 words), *Key Perspectives* (<=140 words total), and *Risks & Open Questions* (<=45 words). "
+                    "CRITICAL: If there is nothing substantive for a section, omit that section completely (never output empty sections)."
+                )
             status_directive = (
                 f"The discussion is actively ongoing. Generate the updated, concise strategic synthesis notes ({ceiling_text}). "
-                "Include *Core Objective & Problem Statement* (<=35 words), *Key Perspectives* (<=140 words total), and *Risks & Open Questions* (<=45 words). "
-                "CRITICAL: If there is nothing substantive for a section, omit that section completely (never output empty sections). "
+                f"{ongoing_structure_req} "
                 f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
                 f"{extra_len_instruction}"
@@ -676,10 +728,20 @@ class DiscussionScribe:
             if scribe_max_words is not None
             else "strictly under 320 words maximum ceiling"
         )
+        if scribe_max_words is not None and scribe_max_words <= 60:
+            conclusion_structure_req = (
+                f"OVERRIDE: The explicit /scribe_max_words {scribe_max_words} directive SUPERSEDES the default "
+                "4-section layout and per-section word budgets above. Do NOT use multiple verbose section headings. "
+                f"Output a single ultra-concise conclusion capturing the core verdict and key takeaway strictly under {scribe_max_words} words total."
+            )
+        else:
+            conclusion_structure_req = (
+                "Structure into: *Problem Statement* (<=25 words), *Consensus Decisions* (<=85 words), *Divergent Positions & Trade-offs* (<=140 words, 1 compact bullet per position), and *Action Items & Next Steps* (<=70 words). "
+                "CRITICAL: If there is nothing substantive for a section (e.g. unanimous agreement with no divergent positions, or no action items), omit that section completely (never output empty sections)."
+            )
         status_directive = (
             f"The discussion has fully concluded. Analyze the complete debate and generate the compact Conclusion Note ({ceiling_text}). "
-            f"Structure into: *Problem Statement* (<=25 words), *Consensus Decisions* (<=85 words), *Divergent Positions & Trade-offs* (<=140 words, 1 compact bullet per position), and *Action Items & Next Steps* (<=70 words). "
-            f"CRITICAL: If there is nothing substantive for a section (e.g. unanimous agreement with no divergent positions, or no action items), omit that section completely (never output empty sections). "
+            f"{conclusion_structure_req} "
             f"CRITICAL: Write ALL headers, titles, and text strictly in {thread_language}. "
             f"{extra_len_instruction}"
         )
