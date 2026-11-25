@@ -32,6 +32,7 @@
 9. [Debugging & Troubleshooting](#9-debugging--troubleshooting)
 10. [Documentation Hub](#10-documentation-hub)
 11. [License](#11-license)
+12. [Disclaimer & Limitation of Liability](#12-disclaimer--limitation-of-liability)
 
 ---
 
@@ -488,5 +489,19 @@ Izvor is source-available under the **Business Source License 1.1 (`BUSL-1.1`)**
 - **Free Use:** Non-production use is permitted free of charge (`Additional Use Grant: None`).
 - **Change Date & Change License:** Converts to the **MIT License** on `2029-11-18` (or four years after publication of each version, whichever comes first).
 - **Commercial / Production Licensing:** Production or commercial use requires a separate commercial license from the Licensor (Branko Mikusic).
+
+---
+
+## 12. Disclaimer & Limitation of Liability
+
+> [!IMPORTANT]
+> This section provides operational and risk notices accompanying this repository. Nothing in this section modifies or supersedes the terms of [LICENSE](LICENSE) (`BUSL-1.1`).
+
+- **Provided "As Is" & Assumption of Risk:** As stated in [LICENSE](LICENSE), Izvor is provided on an **"AS IS"** basis without warranties or conditions of any kind, express or implied. You download, configure, self-host, and operate this software entirely at your own risk. To the maximum extent permitted by applicable law, the author/Licensor shall not be liable for any direct, indirect, incidental, special, consequential, or exemplary damages — including loss of data, security incidents, third-party API/compute charges, or business interruption — arising out of or relating to the use, inability to use, or misuse of this software.
+- **Non-Production Use Only (BSL 1.1):** Free use under `BUSL-1.1` (`Additional Use Grant: None`) is strictly limited to non-production purposes. Any production or commercial deployment requires a separate commercial license agreement with its own contractual terms.
+- **AI-Generated Content Is Not Professional Advice:** Izvor orchestrates third-party Large Language Models (LLMs) through personas (including *Legal Advisor*, *Security Architect*, *ROI Strategist*, and others). LLM outputs may contain hallucinations, omissions, or outdated/incorrect information. All outputs are provided for informational and exploratory purposes only and **do not constitute legal, financial, security, medical, or other professional advice**. You are solely responsible for independently verifying all outputs before relying or acting on them.
+- **Security, Privacy & Compliance Safeguards Are Best-Effort:** Built-in controls — including Presidio NER/regex PII masking, prompt-injection guardrails, indirect tool-output screening, Human-in-the-Loop (HITL) approvals, HMAC audit logging, and `/forget_thread` erasure — are **best-effort technical measures** and **do not guarantee** complete protection against data leakage, prompt injection, or unauthorized actions, nor do they guarantee compliance with GDPR, HIPAA, SOC 2, or other regulatory frameworks. When self-hosting Izvor, you act as the operator/data controller and are solely responsible for reviewing and governing all data transmitted to Slack, upstream LLM providers, and external MCP servers.
+- **Third-Party API Costs, Tools & MCP Integrations:** You supply and manage your own LLM API keys, Slack credentials, network tunnels, RAG documents, and external MCP servers. Built-in Spend Governance estimates and USD circuit breakers are approximate operational safeguards and do not guarantee hard billing limits at upstream providers. You bear sole financial and operational responsibility for all third-party usage fees, rate limits, and actions performed by configured tools or MCP servers.
+- **Lawful & Authorized Use:** You are solely responsible for ensuring that your deployment, configuration, and use of Izvor comply with all applicable laws, organizational policies, and third-party provider terms of service. The author/Licensor does not endorse and bears no responsibility for any unauthorized or unlawful use by third parties.
 
 
