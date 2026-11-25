@@ -39,6 +39,7 @@ def test_reset_daily_spend_preserves_ledger_rows(tmp_path):
     """TKT-1002: reset_daily_spend() should use a watermark timestamp instead of deleting rows."""
     from core.database import db_manager
 
+    prev_db_path = db_manager.db_path
     fresh_db = tmp_path / "test_spend.db"
     db_manager.configure_paths(db_path=fresh_db)
 
@@ -69,7 +70,7 @@ def test_reset_daily_spend_preserves_ledger_rows(tmp_path):
             count_after = conn.execute("SELECT COUNT(*) FROM spend_ledger").fetchone()[0]
         assert count_after == 1
     finally:
-        db_manager.reset_paths()
+        db_manager.configure_paths(db_path=prev_db_path)
 
 
 @pytest.mark.anyio

@@ -221,6 +221,16 @@ def isolate_app_settings_for_tests(tmp_path):
     app_settings_manager.reset_paths()
 
 
+class _UnmockedSlackClientGuard:
+    """Fail-closed guard preventing unmocked Slack SDK calls during unit/integration pytest runs."""
+
+    def __getattr__(self, name: str):
+        raise RuntimeError(
+            f"Real Slack API call '{name}' blocked during pytest run: "
+            "call configure_slack_async_client(...) with a mock first."
+        )
+
+
 @pytest.fixture(autouse=True)
 def isolate_database_for_tests(tmp_path):
     """
@@ -234,17 +244,22 @@ def isolate_database_for_tests(tmp_path):
     test_db_path = iso_dir / "test_izvor.db"
     db_manager.configure_paths(db_path=test_db_path)
 
-    yield
+    yield test_db_path
 
     db_manager.reset_paths()
 
 
 @pytest.fixture(autouse=True)
-def isolate_thread_state_files_for_tests():
+def isolate_thread_state_files_for_tests(isolate_database_for_tests):
     """
-    Ensures clean thread skills state and thread usage state in SQLite.
+    Ensures clean thread skills state and thread usage state in SQLite,
+    cancels dangling background notes/usage tasks, and guards against wiping production data/izvor.db.
     """
+    from agents import thread_notes_agent
     from agents.usage_agent import usage_tracker
+    from core.database import db_manager
+    from core.paths import DB_PATH as REAL_DB_PATH
+    from core.task_utils import safe_cancel_task
     from services.thread_skills_store import thread_skills_manager
 
     thread_skills_manager.clear_all()
@@ -252,8 +267,25 @@ def isolate_thread_state_files_for_tests():
 
     yield
 
+    for task in list(thread_notes_agent._RUNNING_TASKS.values()):
+        safe_cancel_task(task)
+    thread_notes_agent._RUNNING_TASKS.clear()
+    thread_notes_agent._PENDING_UPDATES.clear()
+    thread_notes_agent._PENDING_COMPLETED.clear()
+    thread_notes_agent.THREAD_LOCKS.clear()
+
+    leaked_prod_db = db_manager.db_path.resolve() == REAL_DB_PATH.resolve()
+    if leaked_prod_db:
+        db_manager.configure_paths(db_path=isolate_database_for_tests)
+
     thread_skills_manager.clear_all()
     usage_tracker.clear_all()
+
+    if leaked_prod_db:
+        raise AssertionError(
+            "Test reset db_manager back to production data/izvor.db; "
+            "restore the isolated test db path instead of calling db_manager.reset_paths()."
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -501,6 +533,8 @@ def reset_router_and_llm_di_for_tests():
     # tests verifying missing-key fallback explicitly inject their own env via configure_env_provider().
     configure_env_provider(lambda: {})
     from core.config import (
+        configure_token,
+        reset_report_timezone,
         reset_token,
         set_admin_slack_user_ids_override,
         set_internal_revisor_enabled_override,
@@ -513,12 +547,14 @@ def reset_router_and_llm_di_for_tests():
     from services.web_tools import reset_web_fetch_fn, reset_web_search_fn
     from orchestration.thread_state import thread_state_manager
     from services.slack import (
+        configure_slack_async_client,
         reset_app_home_publish_cache,
         reset_fetch_thread_files,
         reset_fetch_thread_history,
         reset_post_agent_response,
         reset_post_system_message,
         reset_slack_async_client,
+        reset_slack_caches,
     )
     from agents import (
         reset_calculate_thread_costs,
@@ -530,12 +566,20 @@ def reset_router_and_llm_di_for_tests():
     from services.rag.embeddings import EmbeddingService
     from services.rate_limiter import ip_rate_limiter
 
+    # Hard-isolate Slack credentials, async client, caches, and report timezone for every test
+    configure_token("")
+    configure_slack_async_client(_UnmockedSlackClientGuard())
+    reset_slack_caches()
+    reset_report_timezone()
+
     yield
 
     set_internal_revisor_enabled_override(None)
     set_admin_slack_user_ids_override(None)
+    reset_report_timezone()
     reset_token()
     reset_slack_async_client()
+    reset_slack_caches()
     reset_llm_completion_fn()
     reset_llm_sleep_fn()
     reset_env_provider()

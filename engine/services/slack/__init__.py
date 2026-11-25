@@ -11,6 +11,7 @@ from services.slack.client_core import (
     open_dm_channel,
     post_ephemeral_to_slack,
     reset_slack_async_client,
+    reset_slack_caches,
     slack_async_client,
     slack_rate_limiter,
 )
@@ -59,6 +60,7 @@ __all__ = [
     "get_slack_bot_token",
     "configure_slack_async_client",
     "reset_slack_async_client",
+    "reset_slack_caches",
     "get_slack_async_client",
     "slack_async_client",
     "slack_rate_limiter",

@@ -66,6 +66,7 @@ def test_sqlite_concurrent_writers(tmp_path):
 def test_spend_ledger_persistence_and_daily_aggregation(tmp_path):
     db_file = tmp_path / "test_spend.db"
     from core.database import db_manager
+    prev_db_path = db_manager.db_path
     db_manager.configure_paths(db_path=db_file)
     try:
         cb1 = SpendGovernance()
@@ -94,7 +95,7 @@ def test_spend_ledger_persistence_and_daily_aggregation(tmp_path):
         assert cb2.get_daily_spend() == total_spend_1
         assert cb2.calculate_spend(session_id).total_prompt_tokens == 1500
     finally:
-        db_manager.reset_paths()
+        db_manager.configure_paths(db_path=prev_db_path)
 
 
 def test_hitl_atomic_approval_consumption(tmp_path):

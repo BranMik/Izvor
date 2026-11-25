@@ -19,10 +19,11 @@ from services.turn_checkpoint_store import TurnCheckpoint, turn_checkpoint_store
 def clean_db(tmp_path):
     from core.database import db_manager
 
+    prev_db_path = db_manager.db_path
     fresh_db = tmp_path / "test_epic2.db"
     db_manager.configure_paths(db_path=fresh_db)
     yield
-    db_manager.reset_paths()
+    db_manager.configure_paths(db_path=prev_db_path)
 
 
 def test_event_dedup_atomic_claim():

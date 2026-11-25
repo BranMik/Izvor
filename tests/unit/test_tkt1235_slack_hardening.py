@@ -116,10 +116,12 @@ def test_interactivity_single_async_audit_on_success_and_failure_status_on_error
             patch("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True})),
         ):
             # 1. Non-self-audited action emits exactly ONE SUCCESS async audit from dispatcher
+            mock_modal_client = MagicMock()
+            mock_modal_client.views_open = AsyncMock(return_value={"ok": True})
+            configure_slack_async_client(mock_modal_client)
             with (
                 patch("adapters.slack.interactivity.log_audit_event_async", new_callable=AsyncMock) as mock_audit,
                 patch("services.slack_home.build_edit_workspace_context_modal", return_value={"type": "modal"}),
-                patch("services.slack.slack_async_client.views_open", new_callable=AsyncMock),
             ):
                 resp1 = client.post(
                     "/slack/actions",

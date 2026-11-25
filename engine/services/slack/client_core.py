@@ -28,6 +28,13 @@ def configure_slack_async_client(client: Any) -> None:
     _slack_async_client_override = client
 
 
+def reset_slack_caches() -> None:
+    """Clears in-memory Slack channel name and resolved usage channel ID caches."""
+    global _RESOLVED_USAGE_CHANNEL_ID
+    CHANNEL_NAME_CACHE.clear()
+    _RESOLVED_USAGE_CHANNEL_ID = None
+
+
 def reset_slack_async_client() -> None:
     """Resets the in-memory AsyncWebClient override and cached token-bound client."""
     global _raw_slack_async_client, _raw_slack_async_client_token
@@ -35,6 +42,7 @@ def reset_slack_async_client() -> None:
     with _client_lock:
         _raw_slack_async_client = None
         _raw_slack_async_client_token = None
+    reset_slack_caches()
 
 
 def get_slack_async_client() -> AsyncWebClient:

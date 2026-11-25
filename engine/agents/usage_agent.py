@@ -1,7 +1,8 @@
 import asyncio
 import logging
+import math
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from services.pricing_service import get_model_pricing
@@ -13,18 +14,22 @@ from services.slack import (
 )
 
 from core.task_utils import safe_create_task
-from core.config import USAGE_CHANNEL_NAME
+from core.config import USAGE_CHANNEL_NAME, get_report_timezone
 
 logger = logging.getLogger(__name__)
 
+_MIN_VALID_SLACK_EPOCH = 1356998400.0  # 2013-01-01 00:00:00 UTC (predates Slack launch)
+
 
 def parse_thread_creation_time(thread_ts: str) -> str:
-    """Parses Slack thread_ts epoch string into a human-readable datetime string."""
+    """Parses Slack thread_ts epoch string into a human-readable datetime string in the configured report timezone (default Europe/Zagreb CET/CEST)."""
     try:
         ts_float = float(thread_ts)
-        dt = datetime.fromtimestamp(ts_float, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except (ValueError, TypeError, OSError):
+        if not math.isfinite(ts_float) or ts_float < _MIN_VALID_SLACK_EPOCH:
+            return "Unknown"
+        dt = datetime.fromtimestamp(ts_float, tz=get_report_timezone())
+        return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+    except (ValueError, TypeError, OSError, OverflowError):
         return "Unknown"
 
 
@@ -301,11 +306,12 @@ class ThreadUsageTracker:
             grand_total_tokens += t_tokens
             grand_total_cost_usd += model_total_cost
 
+        parsed_created = parse_thread_creation_time(thread_ts)
         return {
             "channel_id": channel_id,
             "channel_name": meta.get("channel_name", f"#{channel_id}"),
             "thread_ts": thread_ts,
-            "created_at_str": meta.get("created_at_str", parse_thread_creation_time(thread_ts)),
+            "created_at_str": parsed_created if parsed_created != "Unknown" else (meta.get("created_at_str") or "Unknown"),
             "is_completed": meta.get("is_completed", False),
             "models": models_breakdown,
             "grand_prompt_tokens": grand_prompt_tokens,
@@ -405,7 +411,7 @@ class ThreadUsageTracker:
             "Displayed prices are orientational estimates only and may be inaccurate, so it is recommended to verify them on the provider's official pricing pages."
         )
 
-        curr_time = time.strftime("%H:%M:%S")
+        curr_time = datetime.now(get_report_timezone()).strftime("%H:%M:%S %Z")
         lines.append(f"\n_🕒 Last updated: {curr_time} | Rates refreshed every 7 days_")
 
         return "\n".join(lines)

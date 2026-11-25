@@ -7,11 +7,13 @@ functions that read from agent_settings.json SSOT without circular dependencies.
 """
 
 from collections.abc import Callable, Mapping
+from datetime import timedelta, timezone, tzinfo
 import logging
 import os
 from pathlib import Path
 import tomllib
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
@@ -200,6 +202,43 @@ def resolve_avatar_url(icon_url: str | None, env: Mapping[str, str] | None = Non
 # Usage channel configuration
 USAGE_CHANNEL_NAME = os.getenv("USAGE_CHANNEL_NAME", "izvor-usage")
 USAGE_CHANNEL_ID = os.getenv("USAGE_CHANNEL_ID", "")
+
+# Report timezone configuration (defaults to Central European Time: Europe/Zagreb)
+REPORT_TIMEZONE = os.getenv("IZVOR_TIMEZONE", "Europe/Zagreb")
+_report_timezone_override: tzinfo | None = None
+_CET_FALLBACK = timezone(timedelta(hours=1), "CET")
+
+
+def configure_report_timezone(tz: str | tzinfo | None) -> None:
+    """Configures or clears an in-memory report timezone override for tests and DI."""
+    global _report_timezone_override
+    if tz is None:
+        _report_timezone_override = None
+    elif isinstance(tz, tzinfo):
+        _report_timezone_override = tz
+    else:
+        _report_timezone_override = ZoneInfo(str(tz).strip())
+
+
+def reset_report_timezone() -> None:
+    """Resets the in-memory report timezone override."""
+    global _report_timezone_override
+    _report_timezone_override = None
+
+
+def get_report_timezone() -> tzinfo:
+    """Returns the configured report tzinfo (defaulting to Europe/Zagreb CET/CEST)."""
+    if _report_timezone_override is not None:
+        return _report_timezone_override
+    tz_name = os.getenv("IZVOR_TIMEZONE", REPORT_TIMEZONE).strip() or "Europe/Zagreb"
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        logger.warning(
+            "[CONFIG] Invalid or unavailable IZVOR_TIMEZONE '%s'; falling back to fixed CET (UTC+1).",
+            tz_name,
+        )
+        return _CET_FALLBACK
 
 
 def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
@@ -515,6 +554,10 @@ __all__ = [
     "get_base_avatar_url",
     "USAGE_CHANNEL_NAME",
     "USAGE_CHANNEL_ID",
+    "REPORT_TIMEZONE",
+    "get_report_timezone",
+    "configure_report_timezone",
+    "reset_report_timezone",
     "AGENTS_CONFIG",
     "SYSTEM_AGENTS_CONFIG",
     "ORCHESTRATOR_CONFIG",

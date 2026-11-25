@@ -47,6 +47,7 @@ def test_tkt_702_spend_ledger_unification_and_preservation(tmp_path):
     """
     from core.database import db_manager
 
+    prev_db_path = db_manager.db_path
     test_db = tmp_path / "spend_test.db"
     db_manager.configure_paths(db_path=test_db)
 
@@ -79,7 +80,7 @@ def test_tkt_702_spend_ledger_unification_and_preservation(tmp_path):
             count_after = cursor.fetchone()[0]
         assert count_after == 1
     finally:
-        db_manager.reset_paths()
+        db_manager.configure_paths(db_path=prev_db_path)
 
 
 def test_tkt_703_local_tool_dynamic_thread_skill_authorization():
@@ -173,11 +174,13 @@ def test_tkt_908_legacy_colon_format_rejected():
     """
     TKT-908: Verify legacy colon format bypass has been removed and triggers invalid/expired notice.
     """
+    from core.config import configure_token, reset_token
     from services.slack import configure_slack_async_client, reset_slack_async_client
 
     mock_ephemeral = AsyncMock(return_value={"ok": True})
     mock_client = AsyncMock()
     mock_client.chat_postEphemeral = mock_ephemeral
+    configure_token("xoxb-valid-test-token")
     configure_slack_async_client(mock_client)
     try:
         with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True):
@@ -207,4 +210,5 @@ def test_tkt_908_legacy_colon_format_rejected():
             assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
     finally:
         reset_slack_async_client()
+        reset_token()
 

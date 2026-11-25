@@ -715,6 +715,7 @@ def test_verify_audit_log_integrity_anchor_db_error_fails_closed(tmp_path):
     audit_dir.mkdir()
     isolated_db = tmp_path / "no_anchors.db"
 
+    prev_db_path = db_manager.db_path
     db_manager.configure_paths(db_path=isolated_db)
     try:
         logger_inst = AuditLogger(audit_dir=audit_dir)
@@ -733,7 +734,7 @@ def test_verify_audit_log_integrity_anchor_db_error_fails_closed(tmp_path):
         assert res.valid is False
         assert any("Audit anchor verification failed" in err for err in res.errors)
     finally:
-        db_manager.reset_paths()
+        db_manager.configure_paths(db_path=prev_db_path)
 
 
 def test_audit_logger_keyring_rotation_verifies_historical_entries(temp_audit_dir):

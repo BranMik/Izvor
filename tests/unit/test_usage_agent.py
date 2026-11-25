@@ -5,6 +5,7 @@ import pytest
 from agents.usage_agent import (
     calculate_thread_costs,
     format_usage_slack_message,
+    parse_thread_creation_time,
     record_thread_tokens,
     update_usage_for_thread,
     usage_tracker,
@@ -87,11 +88,13 @@ async def test_format_usage_slack_message_structure():
 
     msg = await format_usage_slack_message(channel_id, thread_ts, is_completed=False)
 
-    # Must contain header items: Channel name, creation time, thread ts, status
+    # Must contain header items: Channel name, creation time (CET/CEST), thread ts, status
     assert "#dev-discussions" in msg
+    assert "📅 *Thread Created:* `2023-11-14 23:13:20 CET`" in msg
     assert "Thread TS:" in msg
     assert "Discussion Status:" in msg
     assert "In Progress / Active" in msg
+    assert ("CET |" in msg) or ("CEST |" in msg)
 
     # Must contain model breakdown
     assert "gemini/gemini-3.8-flash" in msg
@@ -250,4 +253,64 @@ def test_sqlite_persistence_and_metadata():
         assert migrated_row is not None
         assert migrated_row["channel_name"] == "#updated-channel"
         assert migrated_row["is_completed"] == 1
+
+
+def test_parse_thread_creation_time_europe_zagreb_and_epoch_validation():
+    # Winter CET (UTC+1)
+    assert parse_thread_creation_time("1795598751.704969") == "2026-11-25 10:25:51 CET"
+
+    # Midnight date-rollover: 2026-11-24 23:30:00 UTC -> 2026-11-25 00:30:00 CET in Vienna/Zagreb
+    assert parse_thread_creation_time("1795563000.000000") == "2026-11-25 00:30:00 CET"
+
+    # Summer CEST (UTC+2)
+    assert parse_thread_creation_time("1784116800.000000") == "2026-07-15 14:00:00 CEST"
+
+    # Pre-Slack synthetic epochs, non-finite, and invalid strings must return "Unknown"
+    for bad_ts in ("0", "1.1", "999.001", "12345.0002", "nan", "inf", "-inf", "not-a-float", ""):
+        assert parse_thread_creation_time(bad_ts) == "Unknown"
+
+
+def test_calculate_thread_costs_recomputes_stale_utc_created_at_str():
+    from core.database import get_db_transaction
+
+    channel_id = "C_STALE_UTC"
+    thread_ts = "1795563000.000000"  # 2026-11-24 23:30:00 UTC -> 2026-11-25 00:30:00 CET
+
+    with get_db_transaction(immediate=True) as conn:
+        conn.execute(
+            """
+            INSERT INTO thread_usage_meta (channel_id, thread_ts, channel_name, created_at_str, usage_msg_ts, is_completed, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            """,
+            (channel_id, thread_ts, "#general", "2026-11-24 23:30:00", None, 0, 1795563000.0),
+        )
+
+    costs = calculate_thread_costs(channel_id, thread_ts)
+    assert costs["created_at_str"] == "2026-11-25 00:30:00 CET"
+
+
+@pytest.mark.anyio
+async def test_pytest_slack_and_cache_isolation():
+    from core.config import get_slack_bot_token
+    from services.slack import (
+        CHANNEL_NAME_CACHE,
+        get_or_create_usage_channel,
+        get_slack_async_client,
+        reset_slack_caches,
+    )
+    import services.slack.client_core as sc
+
+    # Default pytest isolation blocks real .env Slack tokens and unmocked Slack client calls
+    assert get_slack_bot_token() == ""
+    assert await get_or_create_usage_channel() == "mock_izvor-usage_channel"
+    assert sc._RESOLVED_USAGE_CHANNEL_ID == "mock_izvor-usage_channel"
+
+    client = get_slack_async_client()
+    with pytest.raises(RuntimeError, match="Real Slack API call 'chat_postMessage' blocked"):
+        client.chat_postMessage(channel="C1", text="should never execute")
+
+    CHANNEL_NAME_CACHE["C_TEST"] = ("#cached", 123.0)
+    reset_slack_caches()
+    assert CHANNEL_NAME_CACHE == {}
+    assert sc._RESOLVED_USAGE_CHANNEL_ID is None
 

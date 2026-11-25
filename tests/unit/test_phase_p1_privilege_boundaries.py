@@ -428,8 +428,10 @@ async def test_slack_client_short_history_truncation():
 
     mock_client = MagicMock()
     mock_client.conversations_replies = AsyncMock(return_value=mock_slack_resp)
+    from core.config import configure_token, reset_token
     from services.slack import configure_slack_async_client, reset_slack_async_client
 
+    configure_token("xoxb-valid-test-token")
     configure_slack_async_client(mock_client)
     try:
         with patch("services.slack.messages.logger.info") as mock_info:
@@ -444,6 +446,7 @@ async def test_slack_client_short_history_truncation():
             assert f"{long_secret[:20]}..." in history_logs[0]
     finally:
         reset_slack_async_client()
+        reset_token()
 
 
 # ---------------------------------------------------------------------------

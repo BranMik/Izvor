@@ -74,6 +74,7 @@ async def test_lifespan_rejects_web_concurrency_gt_1():
 @pytest.mark.anyio
 async def test_drain_active_tasks_and_close_db_shuts_down_cleanly(tmp_path):
     """TKT-1227: Shutdown cancels/drains tracked active tasks and closes SQLite connections."""
+    prev_db_path = db_manager.db_path
     db_path = tmp_path / "lifespan_test.db"
     db_manager.configure_paths(db_path=db_path)
     try:
@@ -105,7 +106,7 @@ async def test_drain_active_tasks_and_close_db_shuts_down_cleanly(tmp_path):
         assert len(db_manager._thread_conns) == 0
     finally:
         db_manager.close_all_connections()
-        db_manager.reset_paths()
+        db_manager.configure_paths(db_path=prev_db_path)
 
 
 def test_pipeline_deps_preserves_falsy_zero_overrides():
@@ -174,6 +175,7 @@ async def test_close_all_connections_spares_live_worker_thread_and_drains_teleme
         done_evt.set()
         release_evt.wait(timeout=2.0)
 
+    prev_db_path = db_manager.db_path
     db_manager.configure_paths(db_path=tmp_path / "lifespan_foreign.db")
     db_manager.init_db()
     t = threading.Thread(target=_worker, daemon=True)
@@ -201,4 +203,4 @@ async def test_close_all_connections_spares_live_worker_thread_and_drains_teleme
         release_evt.set()
         t.join(timeout=2.0)
         db_manager.close_all_connections()
-        db_manager.reset_paths()
+        db_manager.configure_paths(db_path=prev_db_path)

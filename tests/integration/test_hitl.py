@@ -114,13 +114,14 @@ def test_hitl_expiration_ttl():
 
 def test_hitl_slack_interactivity_authorization():
     """Test Slack Block Kit approval/denial authorization: only initiator or admin can approve/deny."""
-    from core.config import set_admin_slack_user_ids_override
+    from core.config import configure_token, reset_token, set_admin_slack_user_ids_override
     from services.slack import configure_slack_async_client, reset_slack_async_client
 
     set_admin_slack_user_ids_override("U_WORKSPACE_ADMIN")
     mock_client = AsyncMock()
     mock_client.chat_postEphemeral = AsyncMock(return_value={"ok": True})
     mock_client.chat_update = AsyncMock(return_value={"ok": True})
+    configure_token("xoxb-valid-test-token")
     configure_slack_async_client(mock_client)
     try:
         with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True):
@@ -171,6 +172,7 @@ def test_hitl_slack_interactivity_authorization():
                 assert row["status"] == "CONSUMED"
     finally:
         reset_slack_async_client()
+        reset_token()
         set_admin_slack_user_ids_override(None)
 
 
@@ -200,11 +202,13 @@ def test_hitl_atomic_status_transition():
 
 def test_hitl_slack_action_expired_or_handled_notice():
     """TKT-908: Post ephemeral warning when approval/denial action references non-existent or handled request."""
+    from core.config import configure_token, reset_token
     from services.slack import configure_slack_async_client, reset_slack_async_client
 
     mock_ephemeral = AsyncMock(return_value={"ok": True})
     mock_client = AsyncMock()
     mock_client.chat_postEphemeral = mock_ephemeral
+    configure_token("xoxb-valid-test-token")
     configure_slack_async_client(mock_client)
     try:
         with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True):
@@ -222,6 +226,7 @@ def test_hitl_slack_action_expired_or_handled_notice():
             assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
     finally:
         reset_slack_async_client()
+        reset_token()
 
 
 @pytest.mark.anyio
