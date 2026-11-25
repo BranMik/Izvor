@@ -14,6 +14,7 @@ from pathlib import Path
 # Engine and Project Root anchors
 ENGINE_DIR = Path(__file__).resolve().parent.parent
 PROJECT_ROOT = ENGINE_DIR.parent
+PYPROJECT_FILE = PROJECT_ROOT / "pyproject.toml"
 
 
 def _bootstrap_dotenv(env_file: Path) -> None:
@@ -178,6 +179,7 @@ __all__ = [
     "PROJECT_ROOT",
     "PROMPT_TEMPLATES_DIR",
     "PROMPTS_DIR",
+    "PYPROJECT_FILE",
     "RAG_CACHE_DIR",
     "RAG_KNOWLEDGE_DIR",
     "SETTINGS_DIR",

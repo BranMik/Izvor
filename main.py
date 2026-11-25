@@ -17,7 +17,7 @@ from api import api_router, public_router
 from core.paths import AVATARS_DIR, ENGINE_AVATARS_DIR
 from skills.registry import skill_registry
 from core.logging_filters import setup_credential_redaction_filters
-from core.config import get_admin_password
+from core.config import get_admin_password, get_app_version
 from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
 from agents.thread_notes_agent import clear_thread_note
 from agents.usage_agent import cleanup_thread_usage, record_thread_tokens
@@ -355,7 +355,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Izvor Multi-Agent Slack Hub",
     description="Multi-agent orchestration platform integrating Slack Events API, LiteLLM, and external MCP client tools.",
-    version="0.9.0",
+    version=get_app_version(),
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,

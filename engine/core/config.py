@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 import logging
 import os
 from pathlib import Path
+import tomllib
 from typing import Any
 
 from dotenv import load_dotenv
@@ -19,6 +20,7 @@ from .paths import (
     DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
     PROJECT_ROOT,
     PROMPTS_DIR,
+    PYPROJECT_FILE,
     SYSTEM_AGENT_SETTINGS_FILE,
     SYSTEM_SETTINGS_FILE,
 )
@@ -475,8 +477,25 @@ def is_internal_revisor_enabled() -> bool:
         logger.debug(f"[CONFIG] System settings load error: {e}")
         return True
 
+def get_app_version(pyproject_path: Path | None = None) -> str:
+    """Reads and returns the stripped [project].version string from pyproject.toml (SSOT)."""
+    target = pyproject_path if pyproject_path is not None else PYPROJECT_FILE
+    if not target.is_file():
+        raise FileNotFoundError(f"Missing pyproject.toml at {target}")
+    with open(target, "rb") as f:
+        data = tomllib.load(f)
+    project = data.get("project")
+    if not isinstance(project, dict):
+        raise ValueError(f"Missing [project] table in {target}")
+    version = project.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError(f"Missing or invalid [project].version in {target}")
+    return version.strip()
+
+
 __all__ = [
     "PROJECT_ROOT",
+    "get_app_version",
     "logger",
     "SLACK_BOT_TOKEN",
     "configure_token",

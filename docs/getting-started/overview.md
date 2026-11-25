@@ -1,6 +1,6 @@
 # Izvor Platform Overview
 
-**Izvor** (`v0.9.0`, Python `>=3.11`) is an asynchronous **Multi-Agent Dialectical Deliberation & Slack Orchestration Platform** that connects Slack workspaces to specialized LLM personas using [LiteLLM](https://github.com/BerriAI/litellm), standard-library SQLite (`WAL` mode) persistence, LanceDB + Tantivy BM25 hybrid RAG, Microsoft Presidio privacy filters, and [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools.
+**Izvor** (`v0.10.0`, Python `>=3.11`) is an asynchronous **Multi-Agent Dialectical Deliberation & Slack Orchestration Platform** that connects Slack workspaces to specialized LLM personas using [LiteLLM](https://github.com/BerriAI/litellm), standard-library SQLite (`WAL` mode) persistence, LanceDB + Tantivy BM25 hybrid RAG, Microsoft Presidio privacy filters, and [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools.
 
 ---
 

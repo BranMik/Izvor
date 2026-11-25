@@ -41,6 +41,8 @@ def test_default_paths_exist_or_resolve_to_repo_layout():
     assert (root / "main.py").is_file()
 
     # 3-tier Architecture Roots
+    assert paths.PYPROJECT_FILE == root / "pyproject.toml"
+    assert paths.PYPROJECT_FILE.is_file()
     assert paths.CONFIG_DIR == root / "config"
     assert paths.ENGINE_DIR == root / "engine"
     assert paths.DATA_DIR == root / "data"

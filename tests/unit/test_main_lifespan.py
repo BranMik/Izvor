@@ -2,20 +2,57 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tomllib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 import main
+from core.config import get_app_version
 from core.database import db_manager
+from core.paths import PYPROJECT_FILE
 from core.task_utils import _ACTIVE_TASKS, safe_create_task
 from orchestration.protocols import PipelineDeps, resolve_pipeline_deps
 from orchestration.turn_pipeline import TurnPipeline
 
 
 def test_fastapi_app_version_aligned_with_pyproject():
-    """TKT-1227: FastAPI version must match pyproject.toml (0.9.0)."""
-    assert main.app.version == "0.9.0"
+    """TKT-1227: FastAPI version must match pyproject.toml [project].version (SSOT)."""
+    with open(PYPROJECT_FILE, "rb") as f:
+        expected_version = tomllib.load(f)["project"]["version"].strip()
+    assert main.app.version == expected_version
+    assert main.app.version == get_app_version()
+
+
+def test_get_app_version_reads_stripped_version_from_custom_pyproject(tmp_path):
+    """get_app_version returns stripped [project].version from an injected pyproject.toml path."""
+    custom_pyproject = tmp_path / "pyproject.toml"
+    custom_pyproject.write_text('[project]\nname = "izvor"\nversion = "  1.2.3  "\n', encoding="utf-8")
+    assert get_app_version(pyproject_path=custom_pyproject) == "1.2.3"
+
+
+def test_get_app_version_raises_when_pyproject_missing(tmp_path):
+    """get_app_version fails fast with FileNotFoundError when pyproject.toml is missing."""
+    missing = tmp_path / "nonexistent.toml"
+    with pytest.raises(FileNotFoundError, match="Missing pyproject.toml"):
+        get_app_version(pyproject_path=missing)
+
+
+@pytest.mark.parametrize(
+    "toml_content",
+    [
+        '[tool.ruff]\nline-length = 120\n',
+        '[project]\nname = "izvor"\n',
+        '[project]\nname = "izvor"\nversion = "   "\n',
+        '[project]\nname = "izvor"\nversion = 10\n',
+    ],
+)
+def test_get_app_version_raises_value_error_on_invalid_schema(tmp_path, toml_content):
+    """get_app_version fails fast with ValueError when [project] or [project].version is invalid."""
+    bad_pyproject = tmp_path / "pyproject.toml"
+    bad_pyproject.write_text(toml_content, encoding="utf-8")
+    with pytest.raises(ValueError):
+        get_app_version(pyproject_path=bad_pyproject)
 
 
 @pytest.mark.anyio

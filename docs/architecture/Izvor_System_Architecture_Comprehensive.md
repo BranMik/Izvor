@@ -1,8 +1,8 @@
-# Izvor — Comprehensive System Specification, Features & Architecture Reference (`v0.9.0`)
+# Izvor — Comprehensive System Specification, Features & Architecture Reference (`v0.10.0`)
 
 ## 1. Executive Definition & Platform Vision
 
-**Izvor** (`v0.9.0`, Python `>=3.11`) is an asynchronous **Multi-Agent Dialectical Deliberation & Slack Orchestration Platform**. It integrates Slack workspaces (via the Slack Events API, Interactive Block Kit Components, and Slack App Home) with heterogeneous Large Language Model (LLM) providers through [LiteLLM](https://github.com/BerriAI/litellm), an embedded ACID SQLite state engine (WAL mode), a serverless hybrid vector + full-text Retrieval-Augmented Generation (RAG) engine (LanceDB + Tantivy BM25), two-way privacy masking (Microsoft Presidio + deterministic regex), and external Model Context Protocol (MCP) tool servers.
+**Izvor** (`v0.10.0`, Python `>=3.11`) is an asynchronous **Multi-Agent Dialectical Deliberation & Slack Orchestration Platform**. It integrates Slack workspaces (via the Slack Events API, Interactive Block Kit Components, and Slack App Home) with heterogeneous Large Language Model (LLM) providers through [LiteLLM](https://github.com/BerriAI/litellm), an embedded ACID SQLite state engine (WAL mode), a serverless hybrid vector + full-text Retrieval-Augmented Generation (RAG) engine (LanceDB + Tantivy BM25), two-way privacy masking (Microsoft Presidio + deterministic regex), and external Model Context Protocol (MCP) tool servers.
 
 ### 1.1 The Problem Izvor Solves
 Conventional single-agent chat assistants suffer from three structural limitations in complex decision-making:

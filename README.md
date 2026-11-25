@@ -38,7 +38,7 @@
 
 ## 1. System Definition
 
-**Izvor** (`v0.9.0`, Python `>=3.11`) is an asynchronous **Multi-Agent Dialectical Deliberation and Orchestration Platform for Slack** built on FastAPI, LiteLLM, SQLite (WAL mode), LanceDB + Tantivy hybrid RAG, Microsoft Presidio privacy filters, and the Model Context Protocol (MCP).
+**Izvor** (`v0.10.0`, Python `>=3.11`) is an asynchronous **Multi-Agent Dialectical Deliberation and Orchestration Platform for Slack** built on FastAPI, LiteLLM, SQLite (WAL mode), LanceDB + Tantivy hybrid RAG, Microsoft Presidio privacy filters, and the Model Context Protocol (MCP).
 
 Instead of relying on a single generic chatbot that is prone to sycophancy or narrow framing, Izvor orchestrates structured, multi-turn discussions among **multiple specialized debate personas** (16 default OOB, such as *Visionary*, *Innovator*, *Sceptic*, *Security Architect*, *ROI Strategist*, *Legal Advisor*, and *Tactician*) and **5 built-in system agents** (*Discussion Scribe*, *Internal Revisor*, *Dialectical Challenger*, *Arbitrator*, and *ListSkills*) directly inside Slack threads. Personas critique one another, dynamically nominate peers, invoke sandboxed tools, and synthesize actionable conclusions under strict cost, privacy, and security guardrails.
 
