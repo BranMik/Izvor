@@ -50,7 +50,7 @@ In addition to the 16-persona debate roster in `config/settings/agent_settings.j
 
 ### 2. Dialectical Stress-Test Challenger (`Challenger`)
 - **Prompt**: [`prompts/system_agents/Challenger.md`](file:///engine/prompts/system_agents/Challenger.md)
-- **Role**: Automatically injected when consecutive convergence signals reach `convergence_consecutive_threshold` to stress-test emerging consensus for fatal edge-cases, hidden assumptions, and structural failure modes.
+- **Role**: Automatically injected when `dialectical_stress_test.enabled` is `true` and consecutive convergence signals reach `dialectical_stress_test.consecutive_threshold` (default: `3`) to stress-test emerging consensus for fatal edge-cases, hidden assumptions, and structural failure modes.
 
 ### 3. Arbitrator (`Arbitrator`)
 - **Prompt**: [`prompts/system_agents/Arbitrator.md`](file:///engine/prompts/system_agents/Arbitrator.md)

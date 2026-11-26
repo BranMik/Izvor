@@ -2,9 +2,30 @@
 
 This document details the security posture, authentication protocols, privilege boundaries, atomic HITL state transitions, and cryptographic defenses implemented across **Izvor**.
 
+## Table of Contents
+
+- [Multi-Layer Defense-in-Depth Model](#multi-layer-defense-in-depth-model)
+- [Slack Ingress: HMAC-SHA256 Signature Verification](#slack-ingress-hmac-sha256-signature-verification)
+  - [1. Timestamp Freshness (Anti-Replay)](#1-timestamp-freshness-anti-replay)
+  - [2. Signature Computation & Constant-Time Comparison](#2-signature-computation--constant-time-comparison)
+- [Administrative API & Interactivity Pre-Authorization](#administrative-api--interactivity-pre-authorization)
+  - [1. HTTP Basic Auth on `/api/*`](#1-http-basic-auth-on-api)
+  - [2. Whole-Payload `ActionSpec` Interactivity Gate](#2-whole-payload-actionspec-interactivity-gate)
+  - [3. Atomic Single-Statement HITL State Transitions](#3-atomic-single-statement-hitl-state-transitions)
+- [Privilege Boundaries, File Neutralization & Prompt Safety](#privilege-boundaries-file-neutralization--prompt-safety)
+  - [1. Declarative Admin Authorization SSOT & Dual Gate (`origin == "slash"` + `is_slack_admin`)](#1-declarative-admin-authorization-ssot--dual-gate-origin--slash--is_slack_admin)
+  - [2. Slack Upload Extension Neutralization (`SAFE_DOWNLOAD_EXTENSIONS`)](#2-slack-upload-extension-neutralization-safe_download_extensions)
+  - [3. PII Masking, Configurable NER Models & Automated Skill Exclusions](#3-pii-masking-configurable-ner-models--automated-skill-exclusions)
+  - [4. LanceDB SQL Filter Validation (`_sql_literal`)](#4-lancedb-sql-filter-validation-_sql_literal)
+  - [5. Slack Output Sanitization](#5-slack-output-sanitization)
+- [Path Traversal, Web SSRF & Sandbox Isolation](#path-traversal-web-ssrf--sandbox-isolation)
+- [Log Credential Sanitization & Data Protection](#log-credential-sanitization--data-protection)
+- [Semantic Prompt Injection, Indirect Tool Screening & Jailbreak Guardrail](#semantic-prompt-injection-indirect-tool-screening--jailbreak-guardrail)
+- [Denial of Service (DoS) Defense & Audit Rate-Limiting](#denial-of-service-dos-defense--audit-rate-limiting)
+
 ---
 
-## 🛡️ Multi-Layer Defense-in-Depth Model
+## Multi-Layer Defense-in-Depth Model
 
 Izvor enforces rigorous security controls across all ingress, orchestration, execution, and storage layers:
 
@@ -47,7 +68,7 @@ graph TD
 
 ---
 
-## 📡 Slack Ingress: HMAC-SHA256 Signature Verification
+## Slack Ingress: HMAC-SHA256 Signature Verification
 
 Every incoming HTTP request to `/slack/events`, `/slack/actions`, or `/slack/interactivity` is inspected by [`core/slack_security.py`](file:///engine/core/slack_security.py).
 
@@ -64,7 +85,7 @@ The raw request body is concatenated into `v0:{timestamp}:{raw_body}`, signed wi
 
 ---
 
-## 🔑 Administrative API & Interactivity Pre-Authorization
+## Administrative API & Interactivity Pre-Authorization
 
 ### 1. HTTP Basic Auth on `/api/*`
 Administrative REST endpoints (`/api/*`) in [`engine/api/router.py`](file:///engine/api/router.py) and [`engine/api/dependencies.py`](file:///engine/api/dependencies.py) require HTTP Basic Authentication validated via `secrets.compare_digest`. If `ADMIN_PASSWORD` is unset, all `/api/*` requests fail closed with HTTP 500/401.
@@ -77,7 +98,7 @@ Human-in-the-Loop approvals in [`services/hitl.py`](file:///engine/services/hitl
 
 ---
 
-## 🔒 Privilege Boundaries, File Neutralization & Prompt Safety
+## Privilege Boundaries, File Neutralization & Prompt Safety
 
 ### 1. Declarative Admin Authorization SSOT & Dual Gate (`origin == "slash"` + `is_slack_admin`)
 Administrative privilege requirements are defined directly in `SKILL.md` frontmatter via `requires_admin: true` as the Single Source of Truth (SSOT), and enforced across two architectural layers:
@@ -130,21 +151,21 @@ Outgoing Slack messages are posted via [`services/slack/messages.py`](file:///en
 
 ---
 
-## 🗄️ Path Traversal, Web SSRF & Sandbox Isolation
+## Path Traversal, Web SSRF & Sandbox Isolation
 
 - **Fail-Closed `ToolPrincipal`**: [`SkillRegistry`](file:///engine/skills/registry.py) verifies [`ToolPrincipal`](file:///engine/core/domain.py) before executing any tool.
 - **Filesystem Confinement**: `validate_resource_filename` in [`services/local_tools.py`](file:///engine/services/local_tools.py) confines operations to `agents_resources/`, supports safe Unicode filenames while rejecting control characters and trailing dots/spaces, filters symlink escapes in `list_documents`, truncates oversized reads at `MAX_READ_DOCUMENT_CHARS = 50000`, blocks Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1–9`, `LPT1–9`) and NTFS ADS (`:`), protects `DEFAULT_PROTECTED_WRITE_PATHS`, writes atomically via temp file + `os.replace()`, and caps writes at `max_write_bytes` (1 MB).
-- **Outbound Web SSRF & Slowloris Protection**: [`services/web_tools.py`](file:///engine/services/web_tools.py) uses `PinnedIPTransport` to pin resolved public IPs, enforces `allowed_ports` (`[80, 443]`, including implicit default ports on `http`/`https`), fails closed on missing/empty `Content-Type`, bounds streamed reads by a monotonic wall-clock deadline, blocks private IPv4/IPv6/NAT64 ranges, strips query strings on untrusted domains, protects `ddgs` initialization via `_DDGS_ENGINE_LOCK`, and enforces a per-turn web fetch cap (`max_fetches_per_turn: 5`).
+- **Outbound Web SSRF & Slowloris Protection**: [`services/web_tools.py`](file:///engine/services/web_tools.py) uses `PinnedIPTransport` to pin resolved public IPs, enforces `allowed_ports` (`[80, 443]`, including implicit default ports on `http`/`https`), fails closed on missing/empty `Content-Type`, bounds streamed reads by a monotonic wall-clock deadline, blocks private IPv4/IPv6/NAT64 ranges, optionally strips query strings and fragments on untrusted domains when `strip_query_on_untrusted_domains: true` (default: `false`), protects `ddgs` initialization via `_DDGS_ENGINE_LOCK`, and enforces a per-turn web fetch cap (`max_fetches_per_turn: 5`).
 
 ---
 
-## 🔍 Log Credential Sanitization & Data Protection
+## Log Credential Sanitization & Data Protection
 
 [`core/logging_filters.py`](file:///engine/core/logging_filters.py) invokes `setup_credential_redaction_filters()` at startup to attach `CredentialRedactionFilter` to Python's root logger **plus** `uvicorn`, `uvicorn.error`, `uvicorn.access`, and `httpx` loggers/handlers (since several third-party loggers set `propagate=False`). Before emitting records, the filter formats `%s` `record.args` strings prior to redaction and scrubs `Authorization: Bearer` & `Authorization: Basic` headers, Slack tokens (`xox*-*`), OpenAI/Anthropic/Gemini/Mistral/Groq/AWS keys, and private keys.
 
 ---
 
-## 🛡️ Semantic Prompt Injection, Indirect Tool Screening & Jailbreak Guardrail
+## Semantic Prompt Injection, Indirect Tool Screening & Jailbreak Guardrail
 
 [`services/security/guardrail.py`](file:///engine/services/security/guardrail.py) protects both inbound user prompts and untrusted tool outputs:
 1. **Zero-Cost Heuristic Pre-Filter (`check_heuristic_injection`)**: Screens inbound prompts immediately against regex rules (`instruction_override`, `role_jailbreak`, `prompt_exfiltration`, `delimiter_tag_injection`), emitting `PROMPT_INJECTION_BLOCKED` at zero embedding API cost.
@@ -156,8 +177,8 @@ Outgoing Slack messages are posted via [`services/slack/messages.py`](file:///en
 
 ---
 
-## 🚦 Denial of Service (DoS) Defense & Audit Rate-Limiting
+## Denial of Service (DoS) Defense & Audit Rate-Limiting
 
 Managed in [`core/slack_security.py`](file:///engine/core/slack_security.py) and configured via `security_burst_limits` in `system_settings.json`:
-- **Sliding-Window Throttling**: Monitors `AUTH_FAILURE` events over a `60.0`-second window.
+- **Sliding-Window Throttling**: Monitors `AUTH_FAILURE` events over a `60.0`-second window (`auth_failure_window_seconds`).
 - **Thresholds**: Up to `5` discrete failure events per client IP (`auth_failure_burst_limit`) and `25` globally (`global_auth_failure_burst_limit`), with tracker memory bounded at `1000` entries (`max_tracker_entries`). Excess failures are aggregated into a single summary event.

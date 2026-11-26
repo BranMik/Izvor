@@ -2,6 +2,32 @@
 
 This guide is the complete implementer reference for customizing **Izvor** — covering how to add or modify **Debate Agents**, **Agent Skills**, **External MCP Servers**, **Orchestration Workflows**, **RAG Knowledge Documents**, and **Agent Workspace Resources**.
 
+## Table of Contents
+
+- [1. Configuration Boundary & Reload Matrix](#1-configuration-boundary--reload-matrix)
+  - [Quick-Reference Configuration Matrix](#quick-reference-configuration-matrix)
+- [2. Adding & Modifying Debate Agents](#2-adding--modifying-debate-agents)
+  - [2.1 `config/settings/agent_settings.json` Schema & Field Impact](#21-configsettingsagent_settingsjson-schema--field-impact)
+  - [2.2 Example: Adding a New Debate Persona (`agent-10017`)](#22-example-adding-a-new-debate-persona-agent-10017)
+- [3. Adding & Modifying Configurable Skills (`config/skills/`)](#3-adding--modifying-configurable-skills-configskills)
+  - [3.1 Complete `SKILL.md` YAML Frontmatter Specification](#31-complete-skillmd-yaml-frontmatter-specification)
+  - [3.2 Example A: Custom Python Tool-Backed Skill (`config/skills/jira_lookup/`)](#32-example-a-custom-python-tool-backed-skill-configskillsjira_lookup)
+  - [3.3 Example B: Modifying an Existing Skill (`config/skills/`)](#33-example-b-modifying-an-existing-skill-configskills)
+- [4. Connecting External MCP Servers](#4-connecting-external-mcp-servers)
+  - [4.1 `mcp_servers` Configuration Reference (`config/settings/system_settings.json`)](#41-mcp_servers-configuration-reference-configsettingssystem_settingsjson)
+  - [4.2 End-to-End Walkthrough: Connecting a Local (`stdio`) & Remote (`sse`) MCP Server](#42-end-to-end-walkthrough-connecting-a-local-stdio--remote-sse-mcp-server)
+- [5. Adding & Modifying Workflows (`config/workflows/`)](#5-adding--modifying-workflows-configworkflows)
+  - [5.1 `WorkflowPreset` JSON Schema & Field Impact](#51-workflowpreset-json-schema--field-impact)
+  - [5.2 Workflow Examples (All 3 Modes)](#52-workflow-examples-all-3-modes)
+  - [5.3 Activating & Editing Workflows](#53-activating--editing-workflows)
+- [6. Adding & Modifying RAG Knowledge Documents (`config/rag_knowledge/`)](#6-adding--modifying-rag-knowledge-documents-configrag_knowledge)
+  - [6.1 Directory Layout & Retrieval Scoping](#61-directory-layout--retrieval-scoping)
+  - [6.2 Triggering Indexing (Live or on Startup)](#62-triggering-indexing-live-or-on-startup)
+  - [6.3 Tuning RAG & Security Parameters (`config/settings/system_settings.json`)](#63-tuning-rag--security-parameters-configsettingssystem_settingsjson)
+- [7. Managing Agent Workspace Resources (`agents_resources/`)](#7-managing-agent-workspace-resources-agents_resources)
+  - [7.1 `agents_resources/` vs. `config/rag_knowledge/`](#71-agents_resources-vs-configrag_knowledge)
+  - [7.2 Adding Files & Security Constraints](#72-adding-files--security-constraints)
+
 ---
 
 ## 1. Configuration Boundary & Reload Matrix
@@ -25,7 +51,7 @@ Izvor enforces a strict **3-Pillar separation** ([`engine/core/paths.py`](file:/
 | **Workflows** | [`config/workflows/`](file:///config/workflows) (`<workflow_id>.json`) | **App Home → Workflows Tab** (`workflows_tab.py`) | Hot-reloads active preset on file mtime change; App Home changes persist atomically | `data/backups/workflows/` |
 | **RAG Knowledge Base** | [`config/rag_knowledge/`](file:///config/rag_knowledge) (`shared/` and `<agent_id>/`) | `GET /api/rag/status`, `POST /api/rag/reconcile` | Incremental SHA-256 sync on startup **or live** via `POST /api/rag/reconcile` (no restart needed) | Manifest at `data/.rag_cache/file_manifest.json` |
 | **Agent Workspace Files** | [`agents_resources/`](file:///agents_resources) | Used via `document_reader` & `document_authoring` skills | Live filesystem access on every tool call | Protected by `workspace_write_blacklist_additional` & HITL |
-| **System Settings** | [`config/settings/system_settings.json`](file:///config/settings/system_settings.json) | File-managed only | Hot-reloads on mtime change for dynamic getters; restart recommended for RAG/MCP startup settings | `data/backups/system_settings_backup.json` |
+| **System Settings** | [`config/settings/system_settings.json`](file:///config/settings/system_settings.json) | File-managed only | Hot-reloads on mtime change for dynamic getters; restart recommended for RAG/MCP startup settings. Full key table in [installation.md](installation.md#system-settings-configsettingssystem_settingsjson) | `data/backups/system_settings_backup.json` |
 
 ---
 
@@ -490,6 +516,7 @@ Under `"rag"` in [`config/settings/system_settings.json`](file:///config/setting
 Top-level P2/P3 guardrail, PII NER, audit keyring, and retention keys configurable in `system_settings.json` (with `SystemSettingsModel` defaults):
 - `guardrail_chunk_chars` (`800`), `guardrail_chunk_overlap_chars` (`200`), `guardrail_max_chunks` (`8`), `guardrail_indirect_embedding_enabled` (`false`), `pii_ner_models` (`["en_core_web_sm"]`), `audit_hmac_key_id` (`"default"`), `skill_exclusions_sync_interval_seconds` (`86400.0`).
 - **Scheduled Retention (`retention_*`):** `retention_checkpoints_days` (`7`), `retention_traces_days` (`30`), `retention_event_dedup_days` (`1`), `retention_expired_grace_days` (`7`), `retention_thread_sessions_days` (`90`), `retention_downloads_hours` (`24`), `retention_audit_anchors_compact_enabled` (`true`), `retention_prune_interval_seconds` (`86400.0`), plus opt-in archive windows defaulting to `0` (disabled): `retention_spend_ledger_days` (`0`) and `retention_flat_histories_days` (`0`).
+- **Full `system_settings.json` Reference:** See the complete top-level and nested (`web_security`, `security_burst_limits`, `dialectical_stress_test`) parameter tables in [installation.md](installation.md#system-settings-configsettingssystem_settingsjson).
 
 ---
 

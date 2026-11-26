@@ -2,9 +2,32 @@
 
 This document details **Izvor**'s non-repudiable audit logging system, cryptographic hash-chaining architecture, SQLite head-hash anchoring (`audit_anchors`), and automated integrity validation guards.
 
+## Table of Contents
+
+- [Architectural Overview](#architectural-overview)
+- [Hash Chaining, HMAC Keyring Rotation & SQLite Anchors](#hash-chaining-hmac-keyring-rotation--sqlite-anchors)
+  - [1. Sequential Hash Binding](#1-sequential-hash-binding)
+  - [2. HMAC Key Continuity & Zero-Downtime Keyring Rotation](#2-hmac-key-continuity--zero-downtime-keyring-rotation)
+  - [3. SQLite Head-Hash Anchoring (`audit_anchors`)](#3-sqlite-head-hash-anchoring-audit_anchors)
+- [Continuous Integrity Validation Guards](#continuous-integrity-validation-guards)
+  - [1. Startup Verification](#1-startup-verification)
+  - [2. Scheduled Background Guard (`periodic_audit_integrity_guard`)](#2-scheduled-background-guard-periodic_audit_integrity_guard)
+- [Emergency Alerts on Integrity Breaches](#emergency-alerts-on-integrity-breaches)
+  - [1. Multi-Admin Alert Routing & Delivery Hierarchy](#1-multi-admin-alert-routing--delivery-hierarchy)
+  - [2. Exact Slack Message Layout](#2-exact-slack-message-layout)
+  - [3. Differentiating Production Alerts vs. Test Payloads](#3-differentiating-production-alerts-vs-test-payloads)
+- [Forensic CLI Verification & Diagnostics](#forensic-cli-verification--diagnostics)
+  - [1. Integrity Verification (`--verify`)](#1-integrity-verification---verify)
+  - [2. Secret Key Continuity Check (`--check-secret`)](#2-secret-key-continuity-check---check-secret)
+  - [3. Log Statistics Overview (`--stats`)](#3-log-statistics-overview---stats)
+  - [4. Create Archival Snapshot (`--snapshot`)](#4-create-archival-snapshot---snapshot)
+- [Non-Blocking Async Logging & Amplification Defense](#non-blocking-async-logging--amplification-defense)
+  - [1. Non-Blocking `log_audit_event_async` & Tail Caching](#1-non-blocking-log_audit_event_async--tail-caching)
+  - [2. Amplification Defense & Sliding-Window Burst Suppression](#2-amplification-defense--sliding-window-burst-suppression)
+
 ---
 
-## 🔒 Architectural Overview
+## Architectural Overview
 
 Enterprise governance requires an immutable record of system events, administrative changes, and security actions. Izvor implements a hash-chained, HMAC-signed JSON Lines (JSONL) audit log managed by [`services/audit_logger.py`](file:///engine/services/audit_logger.py), paired with SQLite head-hash anchors in `data/izvor.db`.
 
@@ -23,7 +46,7 @@ Every audit file is organized monthly (e.g., `data/audit/audit_2026_10.jsonl`). 
 
 ---
 
-## ⛓️ Hash Chaining, HMAC Keyring Rotation & SQLite Anchors
+## Hash Chaining, HMAC Keyring Rotation & SQLite Anchors
 
 ### 1. Sequential Hash Binding
 Each record contains:
@@ -47,7 +70,7 @@ A classic weakness of file-only hash chains is **tail truncation** (where an att
 
 ---
 
-## 🛡️ Continuous Integrity Validation Guards
+## Continuous Integrity Validation Guards
 
 To detect tampering, file truncation, or key discrepancies immediately, Izvor runs two validation layers:
 
@@ -65,7 +88,7 @@ During server boot in [`main.py`](file:///main.py), [`AppIntegrityValidator.chec
 
 ---
 
-## 🚨 Emergency Alerts on Integrity Breaches
+## Emergency Alerts on Integrity Breaches
 
 If any cryptographic, anchor, or hash continuity violation occurs, [`send_admin_audit_alert()`](file:///engine/services/audit_logger.py) formats and dispatches a high-priority incident notice.
 
@@ -106,7 +129,7 @@ Use the following matrix to identify real production breach alerts and critical 
 
 ---
 
-## 🔍 Forensic CLI Verification & Diagnostics
+## Forensic CLI Verification & Diagnostics
 
 When an alert fires or during compliance auditing, administrators can run the built-in audit CLI directly:
 
@@ -151,7 +174,7 @@ python -m services.audit_logger --snapshot
 
 ---
 
-## ⚡ Non-Blocking Async Logging & Amplification Defense
+## Non-Blocking Async Logging & Amplification Defense
 
 ### 1. Non-Blocking `log_audit_event_async` & Tail Caching
 - **Async Offloading**: Hot-path async callers can use `log_audit_event_async()` to offload disk writes and SQLite anchor updates to a background thread without blocking the asyncio event loop.

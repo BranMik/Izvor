@@ -2,9 +2,32 @@
 
 This guide covers installing, configuring, and running **Izvor** locally or in production environments.
 
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Step-by-Step Installation](#step-by-step-installation)
+  - [1. Clone the Repository](#1-clone-the-repository)
+  - [2. Set Up a Virtual Environment](#2-set-up-a-virtual-environment)
+  - [3. Install Dependencies](#3-install-dependencies)
+- [Environment Configuration](#environment-configuration)
+  - [Configuration Variables Breakdown](#configuration-variables-breakdown)
+- [Configuration vs. Engine Architecture Guide](#configuration-vs-engine-architecture-guide)
+  - [1. Implementer Configuration (`config/`) — *Customize Freely*](#1-implementer-configuration-config--customize-freely)
+  - [2. Core Engine & Built-ins (`engine/`) — *Do Not Modify During Configuration*](#2-core-engine--built-ins-engine--do-not-modify-during-configuration)
+  - [3. Runtime & Slack UI State (`data/`) — *Managed Automatically at Runtime*](#3-runtime--slack-ui-state-data--managed-automatically-at-runtime)
+  - [System Settings (`config/settings/system_settings.json`)](#system-settings-configsettingssystem_settingsjson)
+- [Running the Application](#running-the-application)
+  - [Development Mode](#development-mode)
+  - [Windows Proactor Loop Notice](#windows-proactor-loop-notice)
+  - [Health Check Verification](#health-check-verification)
+- [Public Ingress & Cloudflare Tunnel Setup](#public-ingress--cloudflare-tunnel-setup)
+  - [Option A: Cloudflare Tunnel — Persistent Named Domain (Recommended)](#option-a-cloudflare-tunnel--persistent-named-domain-recommended)
+  - [Option B: Cloudflare Quick Tunnel (Zero-Account Local Testing)](#option-b-cloudflare-quick-tunnel-zero-account-local-testing)
+  - [Option C: `ngrok`](#option-c-ngrok)
+
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
 - **Python**: Version 3.11 or newer (Python 3.14+ fully verified and supported).
 - **Package Manager**: `pip` (or `uv` / `poetry`).
@@ -13,7 +36,7 @@ This guide covers installing, configuring, and running **Izvor** locally or in p
 
 ---
 
-## ⚙️ Step-by-Step Installation
+## Step-by-Step Installation
 
 ### 1. Clone the Repository
 
@@ -66,7 +89,7 @@ Izvor utilizes:
 
 ---
 
-## 🔐 Environment Configuration
+## Environment Configuration
 
 Create a `.env` file in the project root by copying [`.env.example`](file:///.env.example):
 
@@ -101,7 +124,7 @@ Refer to [`core/config.py`](file:///engine/core/config.py) and [`core/paths.py`]
 
 ---
 
-## 🏗️ Configuration vs. Engine Architecture Guide
+## Configuration vs. Engine Architecture Guide
 
 Izvor separates its codebase into three distinct physical pillars ([`core/paths.py`](file:///engine/core/paths.py)) so implementers know exactly what to customize and what to leave untouched:
 
@@ -129,7 +152,7 @@ The `data/` directory stores live databases, caches, audit logs, and Slack UI st
 
 ---
 
-### ⚙️ System Settings (`config/settings/system_settings.json`)
+### System Settings (`config/settings/system_settings.json`)
 
 System operational parameters, security guardrails, and timeouts are managed by [`SystemSettingsManager`](file:///engine/config_store/system_settings.py) (backed by [`JsonSettingsStore`](file:///engine/config_store/settings_store.py)):
 
@@ -189,12 +212,41 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `retention_audit_anchors_compact_enabled` | `true` | Compacts intermediate `audit_anchors` rows on closed past months (always keeping terminal `MAX(seq)` for on-disk `audit_YYYY_MM.jsonl` files) and prunes orphaned months. |
 | `retention_prune_interval_seconds` | `86400.0` | Background interval in seconds between scheduled `prune_expired_records()` runs (24 hours). |
 | `workspace_write_blacklist_additional` | `[]` | Additional filename patterns blocked from workspace `write_document` operations. |
-| `rag` | `{...}` | Chunking and LanceDB embedding settings (`max_chunk_chars: 1500`, `chunk_overlap_chars: 300`, `min_chunk_chars: 80`, `default_top_k: 3`, `embedding_model: "gemini/gemini-embedding-001"`, `embedding_dim: 3072`, `embedding_batch_size: 32`, `pii_masking: "AT_RETRIEVAL"`, `guardrail_threshold: 0.85`). |
-| `mcp_servers` | `{}` | External MCP server configurations (`stdio`, `sse`, `streamable_http` transports). |
+| `rag` | `{...}` | Chunking and LanceDB embedding settings (`max_chunk_chars: 1500`, `chunk_overlap_chars: 300`, `min_chunk_chars: 80`, `default_top_k: 3`, `embedding_model: "gemini/gemini-embedding-001"`, `embedding_dim: 3072`, `embedding_batch_size: 32`, `pii_masking: "AT_RETRIEVAL"`, `guardrail_threshold: 0.85`). See [configuration-guide.md](configuration-guide.md#63-tuning-rag--security-parameters-configsettingssystem_settingsjson) for per-key details. |
+| `mcp_servers` | `{}` | External MCP server configurations (`stdio`, `sse`, `streamable_http` transports). See [configuration-guide.md](configuration-guide.md#41-mcp_servers-configuration-reference-configsettingssystem_settingsjson) for all server fields. |
+
+#### `web_security` Sub-Keys
+
+| Key | Shipped Value | Description |
+|---|---|---|
+| `max_url_length` | `2048` | Maximum permitted character length of a URL passed to `fetch_web_page`. |
+| `max_query_length` | `1024` | Maximum permitted character length of a search query passed to `web_search`. |
+| `max_redirects` | `5` | Maximum HTTP redirect hops followed by `fetch_web_page` (each hop is independently SSRF-validated). |
+| `max_body_bytes` | `2097152` | Hard cap in bytes (2 MB) on streamed HTTP response bodies downloaded by `fetch_web_page`. |
+| `allowed_ports` | `[80, 443]` | Permitted destination TCP ports (including implicit default ports for `http`/`https`). |
+| `allowed_domains` | `[]` | Optional domain allowlist (case-insensitive exact host or subdomain suffix match). Empty `[]` allows all public domains subject to SSRF IP filtering. |
+| `strip_query_on_untrusted_domains` | `false` | When `true`, strips URL query strings and fragments from `fetch_web_page` requests targeting hosts outside `allowed_domains` (or all hosts when `allowed_domains` is empty). |
+| `max_fetches_per_turn` | `5` | Per-turn cap on outbound web requests enforced via `contextvars.ContextVar`. |
+
+#### `security_burst_limits` Sub-Keys
+
+| Key | Shipped Value | Description |
+|---|---|---|
+| `auth_failure_window_seconds` | `60.0` | Sliding time window in seconds for counting failed authentication attempts (`AUTH_FAILURE`). |
+| `auth_failure_burst_limit` | `5` | Maximum discrete `AUTH_FAILURE` audit events logged per client IP within the sliding window before excess events are aggregated. |
+| `global_auth_failure_burst_limit` | `25` | Maximum discrete `AUTH_FAILURE` audit events logged globally across all IPs within the sliding window before aggregation. |
+| `max_tracker_entries` | `1000` | Upper bound on tracked client IP entries in the in-memory burst tracker to prevent memory exhaustion. |
+
+#### `dialectical_stress_test` Sub-Keys
+
+| Key | Shipped Value | Description |
+|---|---|---|
+| `enabled` | `true` | Enables or disables the mandatory `Challenger` → `Arbitrator` dialectical stress-test gate before convergence fast-forwarding. When `false`, convergence fast-forward skips the stress-test gate. |
+| `consecutive_threshold` | `3` | Consecutive turns emitting `signal_consensus_convergence` required to trigger the `Challenger` → `Arbitrator` gate (clamped `>= 1`). |
 
 ---
 
-## 🖥️ Running the Application
+## Running the Application
 
 ### Development Mode
 
@@ -231,7 +283,7 @@ curl -u admin:YourAdminPassword http://localhost:8000/api/health
 
 ---
 
-## 🌐 Public Ingress & Cloudflare Tunnel Setup
+## Public Ingress & Cloudflare Tunnel Setup
 
 Because Slack delivers event notifications (`/slack/events`), interactive component payloads (`/slack/interactivity`), and server-side avatar fetches (`/avatars/*`) via HTTPS to a public URL, your Izvor server must be reachable from the internet **before** you verify your Slack App webhook URLs.
 

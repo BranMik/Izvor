@@ -62,12 +62,12 @@ Initiated via `/open_debate <Agent>` (or `/open-debate`, `/opendebate`):
 
 ## ⚖️ Consensus Convergence Fast-Forward & Conditional Arbitrator Gate
 
-To prevent premature groupthink while saving tokens once genuine consensus is reached, Izvor implements a two-stage **Dialectical Stress-Test & Arbitrator Verdict Gate** (configured via `fast_forward_on_convergence` in App Home and `convergence_consecutive_threshold: 2` in `system_settings.json`):
+To prevent premature groupthink while saving tokens once genuine consensus is reached, Izvor implements a two-stage **Dialectical Stress-Test & Arbitrator Verdict Gate** (configured via `fast_forward_on_convergence` in App Home and `dialectical_stress_test` in `config/settings/system_settings.json`, with `enabled: true` and `consecutive_threshold: 3`):
 
 1. **Convergence Signaling (`signal_consensus_convergence`)**:
    - Any persona can invoke the `control_plane` tool `signal_consensus_convergence(summary_of_agreement, confidence)` when they observe that the panel has converged.
 2. **Dialectical Stress-Test Injection**:
-   - When consecutive convergence signals reach `convergence_consecutive_threshold` (`2`), `DiscussionLoop` does **not** immediately skip to the `end_chain`.
+   - When `dialectical_stress_test.enabled` is `true` and consecutive convergence signals reach `dialectical_stress_test.consecutive_threshold` (default: `3` in `config/settings/system_settings.json`), `DiscussionLoop` does **not** immediately skip to the `end_chain`.
    - Instead, it injects a two-speaker stress-test pair at the front of the queue:
      - **Challenger (`special_role: "CHALLENGER"`)**: e.g., `agent-10003` (**Sceptic**) or `agent-10002` (**Innovator**), tasked with stress-testing the consensus for hidden edge cases or unexamined assumptions.
      - **Arbitrator**: `Arbitrator`, tasked with defending the proposal against the Challenger's critique and issuing a structured verdict:

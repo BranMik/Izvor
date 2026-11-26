@@ -2,9 +2,31 @@
 
 This document details the architecture of **Izvor**'s dynamic skills system across all **22 platform skills** (**4 configurable** in `config/skills/` and **18 built-in** in `engine/skills/builtin/`), explaining how capabilities are lazily discovered, registered, granted, revoked, persisted in SQLite, and safely executed by personas.
 
+## Table of Contents
+
+- [Architectural Overview](#architectural-overview)
+- [The Two Inference Layers in Izvor](#the-two-inference-layers-in-izvor)
+  - [The Separation of Concerns:](#the-separation-of-concerns)
+- [Complete `SKILL.md` Manifest Specification](#complete-skillmd-manifest-specification)
+  - [1. Top-Level Frontmatter Properties](#1-top-level-frontmatter-properties)
+  - [2. `triggers` Object Properties](#2-triggers-object-properties)
+  - [3. Scope Matrix (`scope`)](#3-scope-matrix-scope)
+- [Discovery & Registration Lifecycle](#discovery--registration-lifecycle)
+  - [1. Modular Lazy Discovery (`skills/registry.py`)](#1-modular-lazy-discovery-skillsregistrypy)
+  - [2. Manifest & Schema Parsing (`skills/parser.py`)](#2-manifest--schema-parsing-skillsparserpy)
+  - [3. Core Provider Binding (`core/registry.py`)](#3-core-provider-binding-coreregistrypy)
+  - [4. Automated PII Keyword Exclusion & Content Hashing (`services/security/pii_masker.py`)](#4-automated-pii-keyword-exclusion--content-hashing-servicessecuritypii_maskerpy)
+- [Dynamic Grant, Revoke & Slack Admin Authorization](#dynamic-grant-revoke--slack-admin-authorization)
+  - [1. Static Configuration (Baseline)](#1-static-configuration-baseline)
+  - [2. Runtime Dynamic Granting (Slack Admin Only)](#2-runtime-dynamic-granting-slack-admin-only)
+  - [3. Runtime Revocation & Constraint Reset (Slack Admin Only)](#3-runtime-revocation--constraint-reset-slack-admin-only)
+  - [4. Declarative Two-Layer Privilege Boundary Enforcement](#4-declarative-two-layer-privilege-boundary-enforcement)
+  - [5. SQLite Persistence & Audit Logging](#5-sqlite-persistence--audit-logging)
+- [Tool Sandboxing & Confinement](#tool-sandboxing--confinement)
+
 ---
 
-## 🧩 Architectural Overview
+## Architectural Overview
 
 In Izvor, a **Skill** is a modular capability that can be dynamically attached to or detached from personas, either statically via configuration or dynamically during conversation turns via user directives and slash commands.
 
@@ -33,7 +55,7 @@ graph TD
 
 ---
 
-## 🧠 The Two Inference Layers in Izvor
+## The Two Inference Layers in Izvor
 
 A critical architectural distinction in Izvor is that **"inference" occurs at two completely separate layers**:
 
@@ -71,7 +93,7 @@ graph TD
 
 ---
 
-## 📜 Complete `SKILL.md` Manifest Specification
+## Complete `SKILL.md` Manifest Specification
 
 Every skill is defined by a `SKILL.md` file located in `config/skills/<skill_name>/SKILL.md` (implementer tool skills) or `engine/skills/builtin/<skill_name>/SKILL.md` (built-in engine directives & modifiers). The file consists of a YAML frontmatter header followed by Markdown operational instructions/guidelines.
 
@@ -117,7 +139,7 @@ The `triggers:` dictionary configures how the skill is detected from user input 
 
 ---
 
-## 🔍 Discovery & Registration Lifecycle
+## Discovery & Registration Lifecycle
 
 ### 1. Modular Lazy Discovery ([`skills/registry.py`](file:///engine/skills/registry.py))
 The skills subsystem is split into focused modules: [`parser.py`](file:///engine/skills/parser.py) (`parse_skill_file`, `SkillDefinition`, `SkillIntegrityError`), [`policy.py`](file:///engine/skills/policy.py) (`get_permitted_tools_for_principal`, `filter_skills_for_caller`), [`recommender.py`](file:///engine/skills/recommender.py) (`select_recommended_agent_from_keys`), and [`registry.py`](file:///engine/skills/registry.py).
@@ -139,7 +161,7 @@ To prevent newly added skills from having their directive keywords accidentally 
 
 ---
 
-## 🔄 Dynamic Grant, Revoke & Slack Admin Authorization
+## Dynamic Grant, Revoke & Slack Admin Authorization
 
 Izvor provides fine-grained control over skill assignment through [`ThreadSkillsManager`](file:///engine/services/thread_skills_store.py) and [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py):
 
@@ -180,7 +202,7 @@ Every grant and revocation emits a non-repudiable audit event to `data/audit/`:
 
 ---
 
-## 🛡️ Tool Sandboxing & Confinement
+## Tool Sandboxing & Confinement
 
 Tool execution occurs inside a protected sandbox:
 - **Fail-Closed Identity Check**: [`ToolPrincipal`](file:///engine/core/domain.py) verifies the calling agent's authorization before any tool handler executes.

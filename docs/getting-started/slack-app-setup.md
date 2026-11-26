@@ -2,9 +2,20 @@
 
 This guide provides instructions for configuring and installing the **Izvor** Slack Application in your Slack workspace.
 
+## Table of Contents
+
+- [Creating the Slack App](#creating-the-slack-app)
+- [App Manifest Configuration (Recommended)](#app-manifest-configuration-recommended)
+- [Required OAuth Scopes](#required-oauth-scopes)
+- [Event Subscriptions & Interactivity URLs](#event-subscriptions--interactivity-urls)
+  - [1. Events API](#1-events-api)
+  - [2. Interactivity & Shortcuts](#2-interactivity--shortcuts)
+- [App Home Configuration](#app-home-configuration)
+- [Installing the App to Your Workspace](#installing-the-app-to-your-workspace)
+
 ---
 
-## 🛠️ Creating the Slack App
+## Creating the Slack App
 
 1. Go to the [Slack API App Console](https://api.slack.com/apps).
 2. Click **Create New App**.
@@ -12,7 +23,7 @@ This guide provides instructions for configuring and installing the **Izvor** Sl
 
 ---
 
-## 📄 App Manifest Configuration (Recommended)
+## App Manifest Configuration (Recommended)
 
 You can paste the following YAML/JSON manifest directly into the Slack App creator:
 
@@ -82,7 +93,7 @@ You can paste the following YAML/JSON manifest directly into the Slack App creat
 
 ---
 
-## 🔐 Required OAuth Scopes
+## Required OAuth Scopes
 
 If setting up scopes manually under **OAuth & Permissions**:
 
@@ -105,7 +116,7 @@ If setting up scopes manually under **OAuth & Permissions**:
 
 ---
 
-## 📡 Event Subscriptions & Interactivity URLs
+## Event Subscriptions & Interactivity URLs
 
 ### 1. Events API
 - Navigate to **Event Subscriptions** in the left sidebar.
@@ -136,7 +147,7 @@ If setting up scopes manually under **OAuth & Permissions**:
 
 ---
 
-## 🏠 App Home Configuration
+## App Home Configuration
 
 1. In the left sidebar, navigate to **App Home**.
 2. Under **Show Tabs**:
@@ -147,7 +158,7 @@ If setting up scopes manually under **OAuth & Permissions**:
 
 ---
 
-## 📥 Installing the App to Your Workspace
+## Installing the App to Your Workspace
 
 1. In the left sidebar, click **Install App**.
 2. Click **Install to Workspace** and authorize the requested permissions.

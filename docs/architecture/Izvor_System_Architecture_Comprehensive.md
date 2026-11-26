@@ -1,5 +1,45 @@
 # Izvor — Comprehensive System Specification, Features & Architecture Reference (`v0.10.0`)
 
+## Table of Contents
+
+- [1. Executive Definition & Platform Vision](#1-executive-definition--platform-vision)
+  - [1.1 The Problem Izvor Solves](#11-the-problem-izvor-solves)
+  - [1.2 How Izvor Solves It](#12-how-izvor-solves-it)
+- [2. Physical & Layered Architecture](#2-physical--layered-architecture)
+  - [Diagram 1: 3-Pillar Physical Layout & 5-Tier Unidirectional DAG Hierarchy](#diagram-1-3-pillar-physical-layout--5-tier-unidirectional-dag-hierarchy)
+  - [2.1 The 3 Physical Pillars (engine/core/paths.py)](#21-the-3-physical-pillars-enginecorepathspy)
+  - [2.2 Strict Layer Isolation & Inversion-of-Control (IoC) Wiring](#22-strict-layer-isolation--inversion-of-control-ioc-wiring)
+- [3. Ingress Lifecycle, FastAPI Lifespan & Background Services](#3-ingress-lifecycle-fastapi-lifespan--background-services)
+  - [Diagram 2: Webhook Ingress, FastAPI Lifespan & Background Daemons](#diagram-2-webhook-ingress-fastapi-lifespan--background-daemons)
+  - [3.1 Startup Initialization & Lifespan Daemons (main.py)](#31-startup-initialization--lifespan-daemons-mainpy)
+- [4. Agent Roster: Debate Personas & System Agents](#4-agent-roster-debate-personas--system-agents)
+  - [4.1 The 16 Debate Panel Personas (config/settings/agent_settings.json)](#41-the-16-debate-panel-personas-configsettingsagent_settingsjson)
+  - [4.2 The 4 System Agents & Orchestrator (engine/settings/system_agent_settings.json)](#42-the-4-system-agents--orchestrator-enginesettingssystem_agent_settingsjson)
+- [5. Orchestration Engine: `DiscussionLoop` & 5-Stage `TurnPipeline`](#5-orchestration-engine-discussionloop--5-stage-turnpipeline)
+  - [5.1 `DiscussionLoop` (engine/orchestration/discussion_loop.py)](#51-discussionloop-engineorchestrationdiscussion_looppy)
+  - [Diagram 3: The 5-Stage `TurnPipeline` & Two-Stage `InternalRevisor` Barrier](#diagram-3-the-5-stage-turnpipeline--two-stage-internalrevisor-barrier)
+  - [5.2 Key Stage Innovations Verified in Live Code](#52-key-stage-innovations-verified-in-live-code)
+- [6. Deliberation Topologies, Workflows & Dialectical Convergence](#6-deliberation-topologies-workflows--dialectical-convergence)
+  - [6.1 Two-Tier Workflow Preset Management (engine/config_store/workflow_manager.py)](#61-two-tier-workflow-preset-management-engineconfig_storeworkflow_managerpy)
+  - [Diagram 4: Topologies & Challenger → Arbitrator Convergence State Machine](#diagram-4-topologies--challenger--arbitrator-convergence-state-machine)
+- [7. Hybrid State Persistence & 3-Tier Context Memory](#7-hybrid-state-persistence--3-tier-context-memory)
+  - [7.1 `ThreadStateManager` Facade (engine/orchestration/thread_state.py)](#71-threadstatemanager-facade-engineorchestrationthread_statepy)
+  - [Diagram 5: 3-Tier Memory Architecture & 11-Table SQLite Schema (`data/izvor.db`)](#diagram-5-3-tier-memory-architecture--11-table-sqlite-schema-dataizvordb)
+- [8. Declarative Skills Engine, Hybrid RAG & External MCP Integration](#8-declarative-skills-engine-hybrid-rag--external-mcp-integration)
+  - [8.1 Declarative `SKILL.md` Architecture (engine/skills/registry.py)](#81-declarative-skillmd-architecture-engineskillsregistrypy)
+  - [8.2 Hybrid Local RAG Engine (engine/services/rag/)](#82-hybrid-local-rag-engine-engineservicesrag)
+  - [8.3 External Model Context Protocol (MCP) Client Integration (engine/services/mcp/)](#83-external-model-context-protocol-mcp-client-integration-engineservicesmcp)
+- [9. Security, Privacy, HITL Checkpointing & Audit Architecture](#9-security-privacy-hitl-checkpointing--audit-architecture)
+  - [Diagram 6: Progressive Skill Disclosure, HITL Durable Checkpointing & Security Boundary](#diagram-6-progressive-skill-disclosure-hitl-durable-checkpointing--security-boundary)
+  - [9.1 Six-Layer Defense-in-Depth Security Model](#91-six-layer-defense-in-depth-security-model)
+- [10. Spend Governance, Slack App Home & Admin REST API](#10-spend-governance-slack-app-home--admin-rest-api)
+  - [10.1 Spend Governance & Autonomous Pricing (pricing_service.py, circuit_breaker.py)](#101-spend-governance--autonomous-pricing-pricing_servicepy-circuit_breakerpy)
+  - [10.2 Slack App Home Control Plane (engine/services/slack_home/)](#102-slack-app-home-control-plane-engineservicesslack_home)
+  - [10.3 HTTP & Admin REST API Endpoints (api/router.py, adapters/slack/router.py)](#103-http--admin-rest-api-endpoints-apirouterpy-adaptersslackrouterpy)
+- [11. Test Suite Architecture & Verification Harness](#11-test-suite-architecture--verification-harness)
+
+---
+
 ## 1. Executive Definition & Platform Vision
 
 **Izvor** (`v0.10.0`, Python `>=3.11`) is an asynchronous **Multi-Agent Dialectical Deliberation & Slack Orchestration Platform**. It integrates Slack workspaces (via the Slack Events API, Interactive Block Kit Components, and Slack App Home) with heterogeneous Large Language Model (LLM) providers through [LiteLLM](https://github.com/BerriAI/litellm), an embedded ACID SQLite state engine (WAL mode), a serverless hybrid vector + full-text Retrieval-Augmented Generation (RAG) engine (LanceDB + Tantivy BM25), two-way privacy masking (Microsoft Presidio + deterministic regex), and external Model Context Protocol (MCP) tool servers.

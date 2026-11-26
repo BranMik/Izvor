@@ -4,13 +4,22 @@
 
 This document details the administrative interface provided via the **Slack App Home** tab, its modular view/action architecture, how server-side authorization is enforced, and how state persistence and backup failovers operate.
 
+## Table of Contents
 
+- [The App Home Interface](#the-app-home-interface)
+- [Strict Server-Side Access Control (`ActionSpec` Pre-Authorization)](#strict-server-side-access-control-actionspec-pre-authorization)
+- [Configurable Controls](#configurable-controls)
+  - [1. Active Personas Roster (`agents_tab.py`)](#1-active-personas-roster-agents_tabpy)
+  - [2. Discussion Topology & Workflows (`workflows_tab.py`)](#2-discussion-topology--workflows-workflows_tabpy)
+  - [3. Governance, Scribe & Dialectical Controls (`governance_tab.py`)](#3-governance-scribe--dialectical-controls-governance_tabpy)
+- [Single Source of Truth (SSOT) & Atomic Persistence](#single-source-of-truth-ssot--atomic-persistence)
+  - [1. Atomic Disk Writes](#1-atomic-disk-writes)
+  - [2. Settings Files & Rolling Backups in `data/backups/`](#2-settings-files--rolling-backups-in-databackups)
+  - [3. Non-Destructive Failover](#3-non-destructive-failover)
 
 ---
 
-
-
-## 🏠 The App Home Interface
+## The App Home Interface
 
 
 
@@ -51,7 +60,7 @@ graph TD
 
 
 
-## 🛡️ Strict Server-Side Access Control (`ActionSpec` Pre-Authorization)
+## Strict Server-Side Access Control (`ActionSpec` Pre-Authorization)
 
 
 
@@ -81,7 +90,7 @@ To prevent unauthorized workspace members from tampering with agent settings, mo
 
 
 
-## 🎛️ Configurable Controls
+## Configurable Controls
 
 
 
@@ -141,7 +150,7 @@ The App Home dashboard organizes controls into structured blocks (strictly cappe
 
 
 
-## 💾 Single Source of Truth (SSOT) & Atomic Persistence
+## Single Source of Truth (SSOT) & Atomic Persistence
 
 
 

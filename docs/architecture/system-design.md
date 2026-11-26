@@ -2,9 +2,30 @@
 
 This document details the core architectural design, module boundaries, and execution lifecycle of **Izvor**.
 
+## Table of Contents
+
+- [Architecture Overview](#architecture-overview)
+- [The Ingress Lifecycle](#the-ingress-lifecycle)
+  - [1. Slack Signature Verification](#1-slack-signature-verification)
+  - [2. URL Verification Challenge](#2-url-verification-challenge)
+  - [3. Event Deduplication & Subtype Filtering](#3-event-deduplication--subtype-filtering)
+  - [4. Non-Blocking Fast Acknowledgment](#4-non-blocking-fast-acknowledgment)
+  - [5. Amplification Defense & Sliding-Window Rate Limiting](#5-amplification-defense--sliding-window-rate-limiting)
+- [FastAPI Lifespan Background Services](#fastapi-lifespan-background-services)
+  - [1. Database Schema Initialization & Numbered Migrations](#1-database-schema-initialization--numbered-migrations)
+  - [2. Windows Event Loop Heartbeat (`keep_loop_alive`)](#2-windows-event-loop-heartbeat-keep_loop_alive)
+  - [3. Periodic Thread State Cleanup (`periodic_thread_state_cleanup`)](#3-periodic-thread-state-cleanup-periodic_thread_state_cleanup)
+  - [4. Audit Log Integrity Guard (`periodic_audit_integrity_guard`)](#4-audit-log-integrity-guard-periodic_audit_integrity_guard)
+  - [5. Data Retention & Privacy Pruner (`periodic_retention_prune`)](#5-data-retention--privacy-pruner-periodic_retention_prune)
+  - [6. Model Pricing Cache Warmup (`warm_up_pricing_cache`)](#6-model-pricing-cache-warmup-warm_up_pricing_cache)
+  - [7. RAG Knowledge Reconciliation (`rag_sync_engine.reconcile`)](#7-rag-knowledge-reconciliation-rag_sync_enginereconcile)
+  - [8. Readiness Registry & Telemetry Batch Flusher](#8-readiness-registry--telemetry-batch-flusher)
+- [3-Tier Codebase Architecture (`config/`, `engine/`, `data/`)](#3-tier-codebase-architecture-config-engine-data)
+- [Module Directory Boundaries](#module-directory-boundaries)
+
 ---
 
-## 🏛️ Architecture Overview
+## Architecture Overview
 
 Izvor is built as an asynchronous, event-driven service leveraging Python 3.11+, [FastAPI](https://fastapi.tiangolo.com/), and [Slack Bolt / SDK](https://slack.dev/python-slack-sdk/). It is structured into clear, decoupled layers:
 
@@ -49,7 +70,7 @@ graph TD
 
 ---
 
-## 🔄 The Ingress Lifecycle
+## The Ingress Lifecycle
 
 ### 1. Slack Signature Verification
 Every inbound HTTP request arriving at `/slack/*` must pass cryptographic validation in [`core/slack_security.py`](file:///engine/core/slack_security.py):
@@ -78,7 +99,7 @@ To protect against denial-of-service attempts or audit-log disk exhaustion attac
 
 ---
 
-## ⚙️ FastAPI Lifespan Background Services
+## FastAPI Lifespan Background Services
 
 Izvor uses the modern async context manager lifespan pattern in [`main.py`](file:///main.py). During application startup and shutdown, several continuous support services are initialized:
 
@@ -130,7 +151,7 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 
 ---
 
-## 🗂️ 3-Tier Codebase Architecture (`config/`, `engine/`, `data/`)
+## 3-Tier Codebase Architecture (`config/`, `engine/`, `data/`)
 
 Izvor enforces a strict 3-tier architectural separation to isolate **implementer configuration** from **immutable core engine logic** and **runtime operational state**:
 
@@ -160,7 +181,7 @@ Izvor enforces a strict 3-tier architectural separation to isolate **implementer
 
 ---
 
-## 🧩 Module Directory Boundaries
+## Module Directory Boundaries
 
 ```
 Izvor/

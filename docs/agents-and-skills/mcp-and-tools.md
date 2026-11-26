@@ -2,9 +2,27 @@
 
 This document details **Izvor**'s tool execution architecture, Model Context Protocol (MCP) integration, `ToolPrincipal` fail-closed authorization, filesystem sandboxing, outbound web security (`PinnedIPTransport`), and non-blocking Slack progress updates.
 
+## Table of Contents
+
+- [Tool Architecture: Local Sandboxed Tools vs External MCP Servers](#tool-architecture-local-sandboxed-tools-vs-external-mcp-servers)
+- [External MCP Client Integration (`services/mcp/`)](#external-mcp-client-integration-servicesmcp)
+  - [1. Server Configuration Example](#1-server-configuration-example)
+  - [2. Windows Subprocess Hardening (`windows_process.py`)](#2-windows-subprocess-hardening-windows_processpy)
+  - [3. Tool Namespacing & Schema Translation (`schema_translator.py`)](#3-tool-namespacing--schema-translation-schema_translatorpy)
+  - [4. Declarative Skill Bindings (`SKILL.md`)](#4-declarative-skill-bindings-skillmd)
+  - [5. Roadmap R-04 Defenses (`security_bridge.py`)](#5-roadmap-r-04-defenses-security_bridgepy)
+- [Fail-Closed `ToolPrincipal` Authorization & Indirect Screening](#fail-closed-toolprincipal-authorization--indirect-screening)
+- [Filesystem Sandboxing & Protected Write Paths](#filesystem-sandboxing--protected-write-paths)
+  - [1. Workspace Segregation: `agents_resources/` vs `system_resources/`](#1-workspace-segregation-agents_resources-vs-system_resources)
+  - [2. Filename, Symlink & Write Hardening (`validate_resource_filename`)](#2-filename-symlink--write-hardening-validate_resource_filename)
+  - [3. Protected Write Paths (`DEFAULT_PROTECTED_WRITE_PATHS`)](#3-protected-write-paths-default_protected_write_paths)
+- [Outbound Web Security & SSRF Defense](#outbound-web-security--ssrf-defense)
+- [Wall-Clock Execution Timeout & Iteration Cap](#wall-clock-execution-timeout--iteration-cap)
+- [The 5-Second Delayed Status UX](#the-5-second-delayed-status-ux)
+
 ---
 
-## 🛠️ Tool Architecture: Local Sandboxed Tools vs External MCP Servers
+## Tool Architecture: Local Sandboxed Tools vs External MCP Servers
 
 Izvor provides two distinct, defense-in-depth tool execution layers:
 
@@ -49,7 +67,7 @@ graph TD
 
 ---
 
-## 🔌 External MCP Client Integration (`services/mcp/`)
+## External MCP Client Integration (`services/mcp/`)
 
 External MCP servers are configured in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json) under `"mcp_servers"`.
 
@@ -104,7 +122,7 @@ When `load_skill` is invoked by an authorized agent, Izvor discovers tools from 
 
 ---
 
-## 🔐 Fail-Closed `ToolPrincipal` Authorization & Indirect Screening
+## Fail-Closed `ToolPrincipal` Authorization & Indirect Screening
 
 Every tool execution in **Stage 4 ([`ToolLoopRunner`](file:///engine/orchestration/stages/tool_loop_runner.py))** is bound to an immutable [`ToolPrincipal`](file:///engine/core/domain.py) identity object containing:
 - `agent_key`: The persona requesting the tool call.
@@ -116,7 +134,7 @@ Every tool execution in **Stage 4 ([`ToolLoopRunner`](file:///engine/orchestrati
 
 ---
 
-## 🛡️ Filesystem Sandboxing & Protected Write Paths
+## Filesystem Sandboxing & Protected Write Paths
 
 Allowing language models to read or write files carries security risks if unconstrained. Izvor enforces multi-layered isolation in [`services/local_tools.py`](file:///engine/services/local_tools.py):
 
@@ -142,16 +160,18 @@ Configured in [`config_store/system_settings.py`](file:///engine/config_store/sy
 
 ---
 
-## 🌐 Outbound Web Security & SSRF Defense
+## Outbound Web Security & SSRF Defense
 
 Implemented in [`services/web_tools.py`](file:///engine/services/web_tools.py) and configured via `web_security` in `system_settings.json`, outbound `web_search` and `fetch_web_page` calls enforce:
 1. **DNS-Rebinding Defense (`PinnedIPTransport`)**: Resolves hostnames once, validates all resolved IPv4 and IPv6 addresses against private/loopback/link-local/multicast/reserved ranges (including IPv4-mapped IPv6 and NAT64 `64:ff9b::/96`), and pins the TCP connection directly to the validated IP while preserving TLS SNI and `Host` headers.
-2. **Port, Scheme, Redirect & Slowloris Hardening**: Enforces `allowed_ports` (`[80, 443]`, including implicit default ports on `http`/`https`), validates every redirect hop against SSRF rules, **fails closed** on missing/empty or non-text `Content-Type` headers, bounds streamed reads with a monotonic wall-clock deadline against Slowloris attacks, synchronizes `ddgs` engine configuration via `_DDGS_ENGINE_LOCK`, and supports `allowed_domains` + `strip_query_on_untrusted_domains`.
+2. **Port, Scheme, Redirect, Size & Domain Hardening**: Enforces `allowed_ports` (`[80, 443]`, including implicit default ports on `http`/`https`), validates every redirect hop against SSRF rules (up to `max_redirects: 5`), bounds URL and search query lengths (`max_url_length: 2048`, `max_query_length: 1024`), caps streamed response payloads (`max_body_bytes: 2097152` / 2 MB) with a monotonic wall-clock deadline against Slowloris attacks, **fails closed** on missing/empty or non-text `Content-Type` headers, and synchronizes `ddgs` engine configuration via `_DDGS_ENGINE_LOCK`.
+   - `allowed_domains` (`[]`): Empty `[]` allows all public domains subject to SSRF IP filtering; a non-empty list restricts fetches to case-insensitive exact host or subdomain suffix matches.
+   - `strip_query_on_untrusted_domains` (`false`): Opt-in privacy flag; when `true`, strips URL query strings and fragments from `fetch_web_page` requests targeting hosts outside `allowed_domains` (or all hosts when `allowed_domains` is empty).
 3. **Per-Turn Web Request Budget (`max_fetches_per_turn: 5`)**: Tracks outbound web requests per turn via a `contextvars.ContextVar` counter, rejecting excessive requests within a single turn.
 
 ---
 
-## ⏱️ Wall-Clock Execution Timeout & Iteration Cap
+## Wall-Clock Execution Timeout & Iteration Cap
 
 Izvor bounds tool calling loops with two limits in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json):
 - **`max_tool_iterations`** (default: `3`): Maximum sequential tool-calling rounds per agent turn. When the final allowed iteration completes (`iteration >= max_tool_iterations`) without pausing, [`ToolLoopRunner`](file:///engine/orchestration/stages/tool_loop_runner.py) skips a redundant tool-enabled follow-up completion and proceeds straight to tool-free synthesis in [`TurnFinalizer`](file:///engine/orchestration/stages/turn_finalizer.py).
@@ -159,7 +179,7 @@ Izvor bounds tool calling loops with two limits in [`config/settings/system_sett
 
 ---
 
-## 💬 The 5-Second Delayed Status UX
+## The 5-Second Delayed Status UX
 
 Posting immediate status messages for every tool call creates Slack notification noise and UI flicker. Izvor implements the **5-Second Delayed Status Rule** in [`orchestration/stages/tool_status.py`](file:///engine/orchestration/stages/tool_status.py):
 

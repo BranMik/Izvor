@@ -2,9 +2,28 @@
 
 This document provides complete technical specifications for the HTTP endpoints exposed by **Izvor** in [`engine/api/router.py`](file:///engine/api/router.py) (mounted by [`main.py`](file:///main.py)) and [`engine/adapters/slack/router.py`](file:///engine/adapters/slack/router.py).
 
+## Table of Contents
+
+- [Authentication](#authentication)
+- [Endpoints Overview](#endpoints-overview)
+- [Detailed Endpoint Specifications](#detailed-endpoint-specifications)
+  - [1. Public Health Check](#1-public-health-check)
+  - [1.1 Public Readiness Probe](#11-public-readiness-probe)
+  - [2. Authenticated Admin Health Check](#2-authenticated-admin-health-check)
+  - [3. Registered Skills Catalog](#3-registered-skills-catalog)
+  - [4. RAG Knowledge Status](#4-rag-knowledge-status)
+  - [5. Trigger RAG Reconciliation](#5-trigger-rag-reconciliation)
+  - [6. Audit Log Cryptographic Integrity Status](#6-audit-log-cryptographic-integrity-status)
+  - [7. Forget Thread Data (GDPR Channel-Scoped Erasure)](#7-forget-thread-data-gdpr-channel-scoped-erasure)
+  - [7.1 Authenticated Subsystem Readiness](#71-authenticated-subsystem-readiness)
+  - [7.2 Turn Execution Traces](#72-turn-execution-traces)
+  - [7.3 Prometheus Metrics](#73-prometheus-metrics)
+  - [8. Slack Inbound Webhooks](#8-slack-inbound-webhooks)
+- [cURL Examples](#curl-examples)
+
 ---
 
-## 🔒 Authentication
+## Authentication
 
 - **Public Endpoints** (`/`, `/health`, `/health/ready`): Require no authentication. Hardened to return minimal status without exposing internal agent identifiers or configuration topology.
 - **Administrative Endpoints** (`/api/*`): Require **HTTP Basic Authentication**.
@@ -15,7 +34,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 ---
 
-## 📋 Endpoints Overview
+## Endpoints Overview
 
 | Method | Endpoint | Access Level | Description |
 |---|---|---|---|
@@ -37,7 +56,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 ---
 
-## 📑 Detailed Endpoint Specifications
+## Detailed Endpoint Specifications
 
 ### 1. Public Health Check
 - **Endpoint**: `GET /` or `GET /health`
@@ -312,7 +331,7 @@ izvor_spend_usd_total 0.14285
 
 ---
 
-## 💻 cURL Examples
+## cURL Examples
 
 ```bash
 # Public health & readiness checks
