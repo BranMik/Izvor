@@ -1,6 +1,6 @@
 """
 Unit and integration tests for list_skills skill, /list_skills slash command,
-system model execution on empty query, dynamic skill-agent mapping,
+deterministic directory rendering, dynamic skill-agent mapping,
 and permission boundary enforcement.
 """
 
@@ -106,7 +106,7 @@ async def test_directive_parser_slash_list_skills():
 async def test_action_run_no_agent_no_text_halts():
     """
     If /list_skills is invoked without an agent and without additional text,
-    it must use the system model to list all skills, post a system message, and halt the turn.
+    it must deterministically format all skills, post a system message, and halt the turn.
     """
     ctx = TurnContext(
         channel_id="C12345",
@@ -116,25 +116,20 @@ async def test_action_run_no_agent_no_text_halts():
     ctx.raw_text_cleaned = ""
     ctx.actions = [ActionDirective(name="list_skills")]
 
-    mock_llm_response = {
-        "choices": [
-            {
-                "message": {
-                    "content": "Here are all the application skills:\n• document_reader: ROIStrategist, SecurityArchitect"
-                }
-            }
-        ]
-    }
+    expected_text = skill_registry.format_skills_directory_markdown(
+        channel_id="C12345",
+        thread_ts="1234567.89",
+    )
 
     from services.slack.messages import configure_post_system_message, reset_post_system_message
 
     mock_post = AsyncMock()
     configure_post_system_message(mock_post)
     try:
-        with patch("core.llm_utils.execute_llm_with_retry", new_callable=AsyncMock, return_value=mock_llm_response) as mock_llm:
+        with patch("litellm.acompletion", new_callable=AsyncMock) as mock_llm:
             res = await list_skills_action_run(ctx)
             assert res == {"ok": True, "halted": True, "action": "list_skills"}
-            mock_llm.assert_awaited_once()
+            mock_llm.assert_not_awaited()
             mock_post.assert_awaited_once()
             args = mock_post.await_args.args
             kwargs = mock_post.await_args.kwargs
@@ -143,6 +138,7 @@ async def test_action_run_no_agent_no_text_halts():
             txt = kwargs.get("text", args[2] if len(args) > 2 else "")
             assert ch == "C12345"
             assert th == "1234567.89"
+            assert txt == expected_text
             assert "document_reader" in txt
     finally:
         reset_post_system_message()
@@ -152,7 +148,7 @@ async def test_action_run_no_agent_no_text_halts():
 async def test_action_run_with_named_agent_halts_exclusively():
     """
     If /list_skills is invoked with a named agent, it is strictly exclusive
-    and halts immediately after presenting skills.
+    and halts immediately after posting the deterministic skills directory.
     """
     from services.slack.messages import configure_post_system_message, reset_post_system_message
 
@@ -161,11 +157,14 @@ async def test_action_run_with_named_agent_halts_exclusively():
         thread_ts="1234567.89",
         raw_text="/list_skills [agent-10008]",
     )
-    configure_post_system_message(AsyncMock())
+    mock_post = AsyncMock()
+    configure_post_system_message(mock_post)
     try:
-        with patch("core.llm_utils.execute_llm_with_retry", new_callable=AsyncMock):
+        with patch("litellm.acompletion", new_callable=AsyncMock) as mock_llm:
             res = await list_skills_action_run(ctx)
             assert res == {"ok": True, "halted": True, "action": "list_skills"}
+            mock_llm.assert_not_awaited()
+            mock_post.assert_awaited_once()
     finally:
         reset_post_system_message()
 
@@ -174,7 +173,7 @@ async def test_action_run_with_named_agent_halts_exclusively():
 async def test_action_run_with_additional_text_halts_exclusively():
     """
     If /list_skills is invoked with additional prompt text, it is strictly exclusive
-    and halts immediately after presenting skills.
+    and halts immediately after posting the deterministic skills directory.
     """
     from services.slack.messages import configure_post_system_message, reset_post_system_message
 
@@ -183,11 +182,14 @@ async def test_action_run_with_additional_text_halts_exclusively():
         thread_ts="1234567.89",
         raw_text="/list_skills which agent should I use for code reviews?",
     )
-    configure_post_system_message(AsyncMock())
+    mock_post = AsyncMock()
+    configure_post_system_message(mock_post)
     try:
-        with patch("core.llm_utils.execute_llm_with_retry", new_callable=AsyncMock):
+        with patch("litellm.acompletion", new_callable=AsyncMock) as mock_llm:
             res = await list_skills_action_run(ctx)
             assert res == {"ok": True, "halted": True, "action": "list_skills"}
+            mock_llm.assert_not_awaited()
+            mock_post.assert_awaited_once()
     finally:
         reset_post_system_message()
 
@@ -377,35 +379,48 @@ def test_build_agent_prompt_with_thread_context():
 
 
 @pytest.mark.anyio
-async def test_list_skills_action_falls_back_with_footer_when_key_missing():
-    """Verify /list_skills resolves missing key to fallback model and appends fallback footer."""
+async def test_list_skills_action_deterministic_without_llm_or_api_keys():
+    """Verify /list_skills succeeds deterministically with zero LLM calls and no API keys configured."""
     from types import SimpleNamespace
-    from unittest.mock import AsyncMock, MagicMock, patch
-    from core.model_catalog import configure_env_provider
+    from core.model_catalog import configure_env_provider, reset_env_provider
+    from services.slack.messages import configure_post_system_message, reset_post_system_message
+    from services.thread_skills_store import thread_skills_manager
     from skills.builtin.list_skills.action import run as list_skills_run
 
-    configure_env_provider(lambda: {"MISTRAL_API_KEY": "valid-mistral-key"})
-    mock_resp = MagicMock()
-    mock_resp.choices = [MagicMock(message=MagicMock(content="• *document_reader*"))]
-    mock_resp.usage = MagicMock(prompt_tokens=15, completion_tokens=10)
-
-    from services.slack.messages import configure_post_system_message, reset_post_system_message
+    configure_env_provider(lambda: {})
+    channel_id = "C_LIST_NO_KEYS"
+    thread_ts = "111.222"
+    thread_skills_manager.grant_skills(channel_id, thread_ts, ["document_reader"])
 
     mock_post = AsyncMock()
     configure_post_system_message(mock_post)
-    ctx = SimpleNamespace(input=SimpleNamespace(channel_id="C_LIST", thread_ts="111.222"))
+    ctx = SimpleNamespace(input=SimpleNamespace(channel_id=channel_id, thread_ts=thread_ts))
     try:
-        with patch("litellm.acompletion", AsyncMock(return_value=mock_resp)) as mock_comp:
+        with patch("litellm.acompletion", AsyncMock()) as mock_comp:
             res = await list_skills_run(ctx)
     finally:
         reset_post_system_message()
+        reset_env_provider()
 
-    assert res["ok"] is True
-    assert mock_comp.call_args.kwargs["model"] == "mistral/mistral-large-latest"
+    assert res == {"ok": True, "halted": True, "action": "list_skills"}
+    mock_comp.assert_not_awaited()
     post_args = mock_post.call_args.args
     post_kwargs = mock_post.call_args.kwargs
     posted_text = post_kwargs.get("text", post_args[2] if len(post_args) > 2 else "")
-    assert "Fallback model used: `mistral/mistral-large-latest`" in posted_text
+    assert "Application Skills & Capabilities Directory" in posted_text
+    assert "All Agents (Thread-Global Active)" in posted_text
+    assert "Fallback model used" not in posted_text
+
+
+def test_list_skills_not_registered_as_system_agent():
+    """Verify list_skills is retired as a system agent and has no system agent prompt file."""
+    from config_store.agent_settings import settings_manager
+    from core import paths
+    from core.config import SYSTEM_AGENTS_CONFIG
+
+    assert "list_skills" not in SYSTEM_AGENTS_CONFIG
+    assert "list_skills" not in settings_manager.system_agents_config
+    assert not (paths.SYSTEM_AGENTS_DIR / "List_Skills.md").exists()
 
 
 def test_list_skills_action_survives_slack_messages_first_import():

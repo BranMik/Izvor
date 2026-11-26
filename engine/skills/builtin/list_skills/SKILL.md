@@ -18,5 +18,4 @@ requires_admin: false
 Provides a complete, transparent directory of all skills and directives available across the platform, including descriptions and which agents are authorized to use each skill.
 
 Usage:
-- Slash command: `/list_skills` (lists all skills via the system model and halts further agent turns if invoked without an agent tag or additional prompt text).
-- Targeted query: `[Agent] /list_skills` or ask any agent (e.g., "What skills are available in the app?") to have the agent present the skills directory.
+- Slash command: `/list_skills` (or `/list-skills`, `/skills`) deterministically posts the thread-aware skills directory directly from `SkillRegistry` (no LLM call) and halts further agent turns.

@@ -8,7 +8,7 @@
 
 In modern collaborative environments, complex engineering, security, and strategic decisions require diverse perspectives. Izvor replaces isolated single-prompt chat interactions with structured, multi-persona deliberations directly inside Slack threads.
 
-Instead of one generic assistant answering every prompt, Izvor orchestrates **multiple specialized debate personas** (16 default OOB in [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json), such as *Visionary*, *Innovator*, *Sceptic*, *Security Architect*, *ROI Strategist*, *Legal Advisor*, *Sales Advisor*, and *Tactician*) alongside **5 built-in system agents** (*Discussion Scribe*, *Internal Revisor*, *Dialectical Challenger*, *Arbitrator*, and *ListSkills* in [`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json)) that deliberate, critique, invoke sandboxed tools, and synthesize decisions using defined orchestration topologies.
+Instead of one generic assistant answering every prompt, Izvor orchestrates **multiple specialized debate personas** (16 default OOB in [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json), such as *Visionary*, *Innovator*, *Sceptic*, *Security Architect*, *ROI Strategist*, *Legal Advisor*, *Sales Advisor*, and *Tactician*) alongside **4 built-in system agents** (*Discussion Scribe*, *Internal Revisor*, *Dialectical Challenger*, and *Arbitrator* in [`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json)) that deliberate, critique, invoke sandboxed tools, and synthesize decisions using defined orchestration topologies.
 
 ---
 

@@ -80,7 +80,7 @@ Workspace administrators (`SLACK_ADMIN_USER_IDS`) can grant or revoke tool capab
 | Slash Command | Registered Slash Aliases | Scope | Effect |
 |---|---|---|---|
 | `/stop` | — | `orchestrator` (`terminal: true`) | Immediately halts automated agent debate turns in the thread. |
-| `/list_skills` | `/list-skills`, `/skills` | `orchestrator` | Invokes the `ListSkills` system agent to post a thread-aware directory of skills and authorized personas. |
+| `/list_skills` | `/list-skills`, `/skills` | `orchestrator` | Deterministically posts a thread-aware directory of skills and authorized personas directly from `SkillRegistry` (no LLM call) and halts further agent turns. |
 | `/web_research <query>` | `/webresearch` | `agent` ([`config/skills/web_research/SKILL.md`](file:///config/skills/web_research/SKILL.md)) | Requests live web search (`web_search`) and page extraction (`fetch_web_page`). |
 | `/rag <query>` | `/search_docs`, `/knowledge` | `agent` ([`config/skills/knowledge_base_rag/SKILL.md`](file:///config/skills/knowledge_base_rag/SKILL.md)) | Queries the hybrid LanceDB + Tantivy BM25 knowledge base (`search_knowledge_rag`). |
 | `/read_file <filename>` | `/read-file`, `/file`, `/attachment`, `/document_reader` | `agent` ([`config/skills/document_reader/SKILL.md`](file:///config/skills/document_reader/SKILL.md)) | Reads an attached Slack file or document in `agents_resources/` (`read_document`, `list_documents`). |

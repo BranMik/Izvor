@@ -28,7 +28,7 @@ This document provides a complete reference guide for all **22 platform skills a
 | [`revoke_constraint`](#revoke_constraint) | Directive | Clears active word count, round limit, or include/exclude constraints. | `/revoke_constraint name` | `[revoke_constraint: name]` | **Slack Admin + Slash Origin** |
 | [`include_agents`](#include_agents) | Directive | Adds specific personas to the active debate pool (`off` requires Slack Admin). | `/include AgentA, AgentB` | `[include: AgentA, AgentB]` | Standard (`off` = **Slack Admin**) |
 | [`exclude_agents`](#exclude_agents) | Directive | Removes specific personas from the active debate pool (`off` requires Slack Admin). | `/exclude AgentA` | `[exclude: AgentA]` | Standard (`off` = **Slack Admin**) |
-| [`list_skills`](#list_skills) | Directive | Posts a list of all currently available skills and tool schemas in Slack. | `/list_skills` | `[list_skills]` | **Slash Origin Only** |
+| [`list_skills`](#list_skills) | Directive | Deterministically posts the thread-aware directory of skills and authorized agents directly from `SkillRegistry` (no LLM call) and halts further turns. | `/list_skills` | `[list_skills]` | **Slash Origin Only** |
 | [`forget_thread`](#forget_thread) | GDPR Purge | Permanently purges persisted SQLite records, flat histories, thread notes, downloads, and caches for the current thread. | `/forget_thread` (`/forget-thread`) | — *(Slash Only)* | **Slack Admin + Slash Origin** |
 
 ---

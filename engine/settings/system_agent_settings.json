@@ -8,13 +8,6 @@
       "is_short_output": true,
       "skills": []
     },
-    "list_skills": {
-      "username": "ListSkills",
-      "model": "gemini/gemini-3.8-flash",
-      "displayname": "Skills Directory Presenter",
-      "icon_url": "avatars/image_98.png",
-      "skills": []
-    },
     "Challenger": {
       "username": "Challenger",
       "model": "mistral/mistral-large-latest",

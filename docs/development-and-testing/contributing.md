@@ -51,7 +51,7 @@ To introduce or customize a debate panel persona:
 5. **Tests**: Add unit test verification to [`tests/unit/test_agent_settings_ssot.py`](file:///tests/unit/test_agent_settings_ssot.py).
 
 ### B. Engine System Agent (`engine/`)
-Internal support agents (`Orchestrator`, `Challenger`, `Arbitrator`, `Discussion_Scribe`, `Intent_Extractor`, `Language_Detector`, `Pricing_Agent`, `Thread_Notes_Agent`, `Usage_Agent`, `InternalRevisor`, `List_Skills`) are part of the core engine:
+Internal support agents (`Orchestrator`, `Challenger`, `Arbitrator`, `Discussion_Scribe`, `Intent_Extractor`, `Language_Detector`, `Pricing_Agent`, `Thread_Notes_Agent`, `Usage_Agent`, `InternalRevisor`) are part of the core engine:
 - Their configuration resides in [`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json).
 - Their prompt templates reside in [`engine/prompts/system_agents/`](file:///engine/prompts/system_agents).
 

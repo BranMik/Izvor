@@ -76,9 +76,6 @@ In addition to the 16-persona debate roster in `config/settings/agent_settings.j
 - **Role**: Asynchronous background synthesis agent generating and pinning live strategic synthesis notes and final dialectical conclusion notes to discussion threads, persisted in SQLite table `thread_notes_state` and injected as Tier 1 `<episodic_thread_summary>` memory when conversation history is sliced.
 - **Implementation**: Managed in [`agents/thread_notes_agent.py`](file:///engine/agents/thread_notes_agent.py).
 
-### 9. Skills Directory Presenter (`List_Skills`)
-- **Role**: System agent invoked via `/list_skills` to format and present the thread-aware catalog of available skills and authorized personas.
-
 ---
 
 ## 📝 Prompt Composition Engine

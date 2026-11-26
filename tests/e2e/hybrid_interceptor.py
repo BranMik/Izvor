@@ -211,10 +211,6 @@ class HybridInterceptor:
             'id="arbitrator"' in sys_lower
             or 'role="arbitrator"' in sys_lower
         )
-        is_list_skills = any(
-            "current platform skills directory:" in str(m.get("content", "")).lower()
-            for m in messages
-        ) or 'id="list_skills"' in sys_lower
 
         # Run Live LLM for System Agents if hybrid live system mode is allowed
         if (
@@ -393,20 +389,6 @@ class HybridInterceptor:
             detected = "Croatian" if has_croatian else "English"
             return MockModelResponse(
                 content=detected, model=model, prompt_tokens=40, completion_tokens=5
-            )
-
-        if is_list_skills:
-            return MockModelResponse(
-                content=(
-                    "*Platform Skills Directory*\n"
-                    "- `web_research`: Live web search and webpage inspection\n"
-                    "- `document_reader`: Read sandboxed documents in agents_resources/\n"
-                    "- `document_authoring`: Write documents in agents_resources/\n"
-                    "- `knowledge_base_rag`: Search RAG knowledge base"
-                ),
-                model=model,
-                prompt_tokens=150,
-                completion_tokens=30,
             )
 
         if is_intent_extractor:

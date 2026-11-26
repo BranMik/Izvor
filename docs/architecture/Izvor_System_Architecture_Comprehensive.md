@@ -11,7 +11,7 @@ Conventional single-agent chat assistants suffer from three structural limitatio
 3. **Unbounded Operational Risk**: Unmonitored tool loops, unmasked PII/secrets sent to third-party APIs, and runaway token spend create compliance and budget hazards.
 
 ### 1.2 How Izvor Solves It
-Izvor replaces isolated prompt-response pairs with structured **dialectical panels** of **multiple domain-specialized personas** (16 default OOB) and **5 built-in system agents**:
+Izvor replaces isolated prompt-response pairs with structured **dialectical panels** of **multiple domain-specialized personas** (16 default OOB) and **4 built-in system agents**:
 - **Structured Topologies**: Supports *Sandwich*, *Parallel Dialectic (Scatter-Gather)*, *Fixed Chain*, *Open Debate*, and *Ad-Hoc Tagged* workflows.
 - **Adversarial Stress-Testing**: Intercepts premature agreement streaks with a mandatory **Challenger → Arbitrator** gate before allowing a debate to conclude.
 - **Cascading Hallucination Prevention**: Runs a post-turn **Two-Stage `InternalRevisor`** barrier that verifies every agent turn against isolated ground truth (`<initial_user_prompt>` and `<retrieved_evidence>`), preventing inter-agent hallucination contagion.
@@ -160,14 +160,13 @@ Each persona is defined by a Markdown system prompt in [config/personas/](../../
 | `agent-10015` | `Revisor` | Revisor | `gemini/gemini-3.8-flash` | No | `web_research`, `knowledge_base_rag` |
 | `agent-10016` | `CreativeAdvisor` | Creative Advisor | `gemini/gemini-3.8-flash` | No | `document_authoring`, `document_reader`, `knowledge_base_rag`, `web_research` |
 
-### 4.2 The 5 System Agents & Orchestrator ([engine/settings/system_agent_settings.json](../../engine/settings/system_agent_settings.json))
+### 4.2 The 4 System Agents & Orchestrator ([engine/settings/system_agent_settings.json](../../engine/settings/system_agent_settings.json))
 System agents handle dialectical governance, verification, and synthesis, with prompt templates stored in [engine/prompts/system_agents/](../../engine/prompts/system_agents):
 1. **`Challenger` (*Dialectical Challenger*, `mistral/mistral-large-latest`)**: Turn-taking dialectical system agent equipped with `document_reader`, `knowledge_base_rag`, and `control_plane`. Injected automatically when premature consensus is reached to attack unexamined assumptions.
 2. **`Arbitrator` (*Arbitrator*, `mistral/mistral-large-latest`)**: Turn-taking dialectical judge equipped with `document_reader`, `knowledge_base_rag`, and `control_plane`. Evaluates the *Challenger*'s critique and renders **Verdict A** (consensus upheld → fast-forward to `end_chain`) or **Verdict B** (consensus failed → return to open debate).
 3. **`InternalRevisor` (*Internal Revisor*, `mistral/mistral-small-latest`)**: Post-turn fact-checker that screens every completed turn against `<authoritative_ground_truth>` and escalates flagged hallucinations to the reasoning confirmation model (`orchestrator.reasoning_model`).
 4. **`DiscussionScribe` (*Discussion Scribe*, `mistral/mistral-small-latest`)**: Generates live pinned thread briefs (`Discussion_Scribe_Live.md`) and final structured conclusion notes (`Discussion_Scribe_Conclusion.md`), persisted to SQLite `thread_notes_state` and `data/thread_notes/` (channel-scoped filenames).
-5. **`list_skills` (*Skills Directory Presenter*, `gemini/gemini-3.8-flash`)**: Invoked by `/list_skills` to present the thread-aware catalog of skills and authorized personas.
-6. **Auxiliary NLP & Pricing Prompts**: `Intent_Extractor.md` ([intent_extractor.py](../../engine/nlp/intent_extractor.py)), `Language_Detector.md` ([language_detector.py](../../engine/nlp/language_detector.py)), and `Pricing_Agent.md` ([pricing_service.py](../../engine/services/pricing_service.py)), driven by `orchestrator.fast_model` (`gemini/gemini-3.8-flash`) and `orchestrator.reasoning_model` (`mistral/mistral-large-latest`).
+5. **Auxiliary NLP & Pricing Prompts**: `Intent_Extractor.md` ([intent_extractor.py](../../engine/nlp/intent_extractor.py)), `Language_Detector.md` ([language_detector.py](../../engine/nlp/language_detector.py)), and `Pricing_Agent.md` ([pricing_service.py](../../engine/services/pricing_service.py)), driven by `orchestrator.fast_model` (`gemini/gemini-3.8-flash`) and `orchestrator.reasoning_model` (`mistral/mistral-large-latest`).
 
 ---
 
@@ -408,7 +407,7 @@ Every skill in Izvor is defined by a `SKILL.md` file with mandatory YAML frontma
 | [`grant_skill`](../../engine/skills/builtin/grant_skill/SKILL.md) | `orchestrator` | `/grant_skill`, `/grant-skill` | **Yes** | Grants an ephemeral thread-scoped skill to specific agent(s) (`auto_detect: false`). |
 | [`grant_skill_for_all`](../../engine/skills/builtin/grant_skill_for_all/SKILL.md) | `orchestrator` | `/grant_skill_for_all`, `/grant-skill-for-all`, `/grant_for_all`, `/grant-for-all` | **Yes** | Grants skill(s) to all agents in the thread for `thread_skill_expiration_time` hours (`auto_detect: false`). |
 | [`revoke_skill_for_all`](../../engine/skills/builtin/revoke_skill_for_all/SKILL.md) | `orchestrator` | `/revoke_skill_for_all`, `/revoke-skill-for-all`, `/revoke_for_all` | **Yes** | Revokes thread-scoped skill grants (`auto_detect: false`). |
-| [`list_skills`](../../engine/skills/builtin/list_skills/SKILL.md) | `orchestrator` | `/list_skills`, `/list-skills`, `/skills` | No | Invokes the `list_skills` system agent to display all skills and agent permissions (`auto_detect: false`). |
+| [`list_skills`](../../engine/skills/builtin/list_skills/SKILL.md) | `orchestrator` | `/list_skills`, `/list-skills`, `/skills` | No | Deterministically posts the thread-aware directory of skills and agent permissions directly from `SkillRegistry` (no system agent / LLM call) (`auto_detect: false`). |
 | [`max_words`](../../engine/skills/builtin/max_words/SKILL.md) | `prompt_modifier` | `/max_words`, `/max-words`, `/maxwords`, `/max` | No (`off`=Admin) | Sets maximum word limit per turn (`1..2000` or `off`, `auto_detect: true`). |
 | [`min_words`](../../engine/skills/builtin/min_words/SKILL.md) | `prompt_modifier` | `/min_words`, `/min-words`, `/minwords`, `/min` | No (`off`=Admin) | Sets minimum word length per turn (`1..1000` or `off`, `auto_detect: true`). |
 | [`scribe_max_words`](../../engine/skills/builtin/scribe_max_words/SKILL.md) | `orchestrator` | `/scribe_max_words`, `/scribe-max-words`, `/scribemaxwords` | No (`off`=Admin) | Sets word ceiling (`1..2000` or `off`) for Discussion Scribe notes (`auto_detect: true`). |

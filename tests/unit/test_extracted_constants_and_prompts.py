@@ -52,7 +52,6 @@ def test_load_system_prompt_files():
         "Pricing_Agent",
         "Challenger",
         "Arbitrator",
-        "List_Skills",
     ]
     for prompt_name in prompt_files:
         file_path = paths.SYSTEM_AGENTS_DIR / f"{prompt_name}.md"
