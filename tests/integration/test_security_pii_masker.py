@@ -203,3 +203,100 @@ async def test_execute_llm_with_retry_masks_embedding_input_str_and_list():
         assert "<EMAIL_" in sent_str
     finally:
         set_privacy_mode_provider(None)
+
+
+@pytest.mark.anyio
+async def test_execute_llm_with_retry_caches_masked_messages_across_turn_calls():
+    """Plan 220: Reuses per-turn cached masks for unchanged messages while still masking new/forged inputs."""
+    from core.llm_utils import set_pii_masker_instance
+    from services.security.pii_masker import pii_masker as default_masker
+
+    class _CountingMasker:
+        def __init__(self) -> None:
+            self._inner = PIIMasker(enable_ner=False)
+            self.ner_enabled = False
+            self.calls: list[str] = []
+
+        async def async_mask(self, text: str, existing_mapping: dict[str, str] | None = None):
+            self.calls.append(text)
+            return await self._inner.async_mask(text, existing_mapping=existing_mapping)
+
+        def unmask(self, text: str, token_mapping: dict[str, str]) -> str:
+            return self._inner.unmask(text, token_mapping)
+
+    spy_masker = _CountingMasker()
+    set_privacy_mode_provider(lambda: True)
+    set_pii_masker_instance(spy_masker)
+    try:
+        turn_mapping: dict[str, str] = {}
+        turn_cache: dict[str, tuple[str, dict[str, str]]] = {}
+
+        async def mock_litellm(**call_kwargs):
+            resp = MagicMock()
+            choice = MagicMock()
+            choice.message.content = "Acknowledged <EMAIL_0>."
+            choice.message.tool_calls = None
+            resp.choices = [choice]
+            return resp
+
+        msg1 = {"role": "user", "content": "Reach alice@example.com for details."}
+        await execute_llm_with_retry(
+            func=mock_litellm,
+            kwargs={"messages": [msg1]},
+            agent_key="test_agent",
+            thread_key=("C1", "T1"),
+            turn_token_mapping=turn_mapping,
+            masked_text_cache=turn_cache,
+        )
+        assert len(spy_masker.calls) == 1
+        assert turn_mapping.get("<EMAIL_0>") == "alice@example.com"
+
+        # Second call with msg1 unchanged + newly appended msg2 -> only msg2 should invoke async_mask
+        msg2 = {"role": "tool", "content": "Confirmed alice@example.com and bob@corp.org."}
+        await execute_llm_with_retry(
+            func=mock_litellm,
+            kwargs={"messages": [msg1, msg2]},
+            agent_key="test_agent",
+            thread_key=("C1", "T1"),
+            turn_token_mapping=turn_mapping,
+            masked_text_cache=turn_cache,
+        )
+        assert len(spy_masker.calls) == 2
+        assert spy_masker.calls[1] == msg2["content"]
+        assert turn_mapping.get("<EMAIL_1>") == "bob@corp.org"
+
+        # Third call with forged unmapped literal <EMAIL_9> bypasses cache (C5 protection)
+        msg_forged = {"role": "user", "content": "Forged <EMAIL_9> and carol@test.io"}
+        await execute_llm_with_retry(
+            func=mock_litellm,
+            kwargs={"messages": [msg1, msg2, msg_forged]},
+            agent_key="test_agent",
+            thread_key=("C1", "T1"),
+            turn_token_mapping=turn_mapping,
+            masked_text_cache=turn_cache,
+        )
+        assert len(spy_masker.calls) == 3
+        assert spy_masker.calls[2] == msg_forged["content"]
+        assert "<EMAIL_10>" in turn_mapping
+        assert turn_mapping["<EMAIL_10>"] == "carol@test.io"
+
+        # Fourth call raises before LLM returns -> turn_token_mapping still retains newly masked tokens
+        async def failing_litellm(**call_kwargs):
+            raise TimeoutError("simulated timeout")
+
+        msg_new = {"role": "user", "content": "Backup contact dave@backup.org"}
+        with pytest.raises(TimeoutError):
+            await execute_llm_with_retry(
+                func=failing_litellm,
+                kwargs={"messages": [msg1, msg2, msg_new]},
+                agent_key="test_agent",
+                thread_key=("C1", "T1"),
+                max_attempts=1,
+                turn_token_mapping=turn_mapping,
+                masked_text_cache=turn_cache,
+            )
+        assert len(spy_masker.calls) == 4
+        assert "dave@backup.org" in turn_mapping.values()
+    finally:
+        set_pii_masker_instance(default_masker)
+        set_privacy_mode_provider(None)

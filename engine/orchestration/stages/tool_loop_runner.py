@@ -290,6 +290,7 @@ class ToolLoopRunner:
                 max_attempts=max(1, int(system_settings_manager.get_tool_call_num_retries()) + 1),
                 allow_503_immediate_retry=allow_503_immediate,
                 turn_token_mapping=ctx.turn_token_mapping,
+                masked_text_cache=ctx.turn_masked_text_cache,
             )
             if initial_resp is None:
                 if ctx.is_superseded():
@@ -309,9 +310,10 @@ class ToolLoopRunner:
 
         iteration = 0
         substantive_tool_outputs_count = 0
+        hit_max_iterations_needs_synthesis = False
 
         async def _execute_loop() -> dict[str, Any] | None:
-            nonlocal iteration, response_message, tool_calls, substantive_tool_outputs_count
+            nonlocal iteration, response_message, tool_calls, substantive_tool_outputs_count, hit_max_iterations_needs_synthesis
             while tool_calls and isinstance(tool_calls, (list, tuple)) and iteration < max_tool_iterations:
                 iteration += 1
                 if on_status_update is not None:
@@ -584,6 +586,10 @@ class ToolLoopRunner:
                     return {"ok": False, "cancelled": True, "reason": "superseded"}
 
                 is_paused = bool(getattr(ctx.output, "waiting_hitl", False) or getattr(ctx.output, "halted", False))
+                if not is_paused and iteration >= max_tool_iterations:
+                    hit_max_iterations_needs_synthesis = True
+                    break
+
                 follow_up_kwargs = build_completion_kwargs(
                     model=ctx.agent_cfg.get("model", ""),
                     messages=ctx.messages,
@@ -600,6 +606,7 @@ class ToolLoopRunner:
                     max_attempts=max(1, int(system_settings_manager.get_tool_call_num_retries()) + 1),
                     allow_503_immediate_retry=allow_503_immediate,
                     turn_token_mapping=ctx.turn_token_mapping,
+                    masked_text_cache=ctx.turn_masked_text_cache,
                 )
                 if follow_up is None:
                     if ctx.is_superseded():
@@ -665,7 +672,8 @@ class ToolLoopRunner:
             loop_res = await asyncio.wait_for(_execute_loop(), timeout=timeout_secs)
             if loop_res is not None:
                 return loop_res
-            self.turn_finalizer.finalize_message(ctx, response_message)
+            if not hit_max_iterations_needs_synthesis:
+                self.turn_finalizer.finalize_message(ctx, response_message)
         except TimeoutError:
             logger.warning(f"[ROUTER] Tool calling loop timed out after {timeout_secs}s for {ctx.agent_key}.")
             ensure_all_tool_calls_responded(ctx)
@@ -689,5 +697,6 @@ class ToolLoopRunner:
             max_tool_iterations=max_tool_iterations,
             allow_503_immediate=allow_503_immediate,
             on_status_update=on_status_update,
+            force_synthesis=hit_max_iterations_needs_synthesis,
         )
 

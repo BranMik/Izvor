@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import litellm
 
-from config_store.system_settings import system_settings_manager
+from config_store.system_settings import get_tool_call_loop_timeout_seconds, system_settings_manager
 from core.llm_utils import execute_llm_with_retry
 from orchestration.protocols import PipelineDeps
 from prompts.builder import render_prompt_template
@@ -99,6 +99,13 @@ class TurnFinalizer:
             final_text = pii_masker.unmask(final_text, mapping)
         ctx.output.final_text = final_text
 
+    def resolve_synthesis_timeout(self) -> float:
+        """Resolves the bounded synthesis timeout from PipelineDeps or system_settings."""
+        deps_timeout = getattr(self.deps, "timeout_secs", None)
+        if deps_timeout is not None:
+            return float(deps_timeout)
+        return float(get_tool_call_loop_timeout_seconds())
+
     async def synthesize_if_needed(
         self,
         ctx: TurnContext,
@@ -110,10 +117,12 @@ class TurnFinalizer:
         max_tool_iterations: int,
         allow_503_immediate: bool,
         on_status_update: Any = None,
+        force_synthesis: bool = False,
     ) -> dict[str, Any] | None:
         """Runs a final tool-free LLM synthesis pass when max iterations or timeout truncated a response."""
         needs_final_synthesis = (
-            (tool_calls and not (response_message and response_message.content and str(response_message.content).strip()))
+            force_synthesis
+            or (tool_calls and not (response_message and response_message.content and str(response_message.content).strip()))
             or timed_out_with_evidence
         ) and (
             not getattr(ctx.output, "waiting_hitl", False)
@@ -143,7 +152,8 @@ class TurnFinalizer:
             messages=ctx.messages,
         )
         exec_retry_fn = getattr(self.deps, "llm_executor", None) or execute_llm_with_retry
-        synth_timeout = min(30.0, float(getattr(self.deps, "timeout_secs", None) or 30.0))
+        synth_timeout = self.resolve_synthesis_timeout()
+        synth_error: Exception | None = None
         try:
             synthesis_res = await asyncio.wait_for(
                 exec_retry_fn(
@@ -155,12 +165,19 @@ class TurnFinalizer:
                     max_attempts=max(1, int(system_settings_manager.get_tool_call_num_retries()) + 1),
                     allow_503_immediate_retry=allow_503_immediate,
                     turn_token_mapping=ctx.turn_token_mapping,
+                    masked_text_cache=ctx.turn_masked_text_cache,
                 ),
                 timeout=synth_timeout,
             )
         except Exception as synth_err:  # noqa: BLE001
+            synth_error = synth_err
+            err_detail = (
+                f"{type(synth_err).__name__}: {synth_err}"
+                if str(synth_err)
+                else type(synth_err).__name__
+            )
             logger.warning(
-                f"[ROUTER] Post-timeout synthesis failed for {ctx.agent_key}: {synth_err}. Falling back to gathered outputs."
+                f"[ROUTER] Final synthesis failed for {ctx.agent_key} ({err_detail}). Falling back to gathered outputs."
             )
             synthesis_res = None
         if synthesis_res is None and ctx.is_superseded():
@@ -169,17 +186,29 @@ class TurnFinalizer:
             ctx.add_usage(synthesis_res)
             synthesized_msg = synthesis_res.choices[0].message
             self.finalize_message(ctx, synthesized_msg)
-        if not ctx.output.final_text and timed_out_with_evidence:
+        if not ctx.output.final_text and (timed_out_with_evidence or force_synthesis or tool_calls):
             tool_snippets = [
                 str(m.get("content", ""))[:200]
                 for m in (ctx.messages or [])
                 if isinstance(m, dict) and m.get("role") == "tool" and m.get("content")
             ]
+            is_timeout_err = timed_out_with_evidence or isinstance(
+                synth_error, (TimeoutError, asyncio.TimeoutError)
+            )
             if tool_snippets:
-                ctx.output.final_text = (
-                    "⚠️ _Tool synthesis timed out. Partial tool evidence gathered before timeout._"
-                )
+                if is_timeout_err:
+                    ctx.output.final_text = (
+                        "⚠️ _Tool synthesis timed out. Partial tool evidence gathered before timeout._"
+                    )
+                else:
+                    ctx.output.final_text = (
+                        "⚠️ _Unable to complete tool synthesis after gathering evidence._"
+                    )
             else:
-                ctx.output.final_text = "⚠️ _Tool execution timed out. Continuing discussion._"
+                ctx.output.final_text = (
+                    "⚠️ _Tool execution timed out. Continuing discussion._"
+                    if is_timeout_err
+                    else "⚠️ _Unable to complete tool synthesis. Continuing discussion._"
+                )
         return None
 

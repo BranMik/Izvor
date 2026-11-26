@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Callable
 import copy
+import hashlib
 import inspect
 import json
 import logging
@@ -12,6 +13,9 @@ from typing import Any
 from core.paths import SYSTEM_SETTINGS_FILE
 
 logger = logging.getLogger(__name__)
+
+MaskedTextCache = dict[str, tuple[str, dict[str, str]]]
+_LITERAL_PLACEHOLDER_RE = re.compile(r"<[A-Z][A-Z0-9_]*_\d+>")
 
 # Pacing and retry configuration
 _llm_retry_config_provider: Callable[[], tuple[int, float]] | None = None
@@ -340,6 +344,39 @@ async def _invoke_llm(func: Any, kwargs: dict[str, Any]) -> Any:
 
 
 
+async def _mask_text_with_cache(
+    text: str,
+    masker: Any,
+    active_mapping: dict[str, str],
+    masked_text_cache: MaskedTextCache | None,
+) -> str:
+    """Masks outbound text while reusing per-turn cached outputs for unchanged messages."""
+    if not text:
+        return text
+    cache_key: str | None = None
+    if masked_text_cache is not None:
+        has_unmapped_literal_placeholder = any(
+            m.group(0) not in active_mapping for m in _LITERAL_PLACEHOLDER_RE.finditer(text)
+        )
+        if not has_unmapped_literal_placeholder:
+            ner_flag = int(bool(getattr(masker, "ner_enabled", False)))
+            digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            cache_key = f"{id(masker)}:{ner_flag}:{digest}"
+            cached = masked_text_cache.get(cache_key)
+            if cached is not None:
+                cached_masked, cached_tokens = cached
+                if cached_tokens:
+                    active_mapping.update(cached_tokens)
+                return cached_masked
+
+    masked_text, mapping = await masker.async_mask(text, existing_mapping=active_mapping)
+    active_mapping.update(mapping)
+    if cache_key is not None and masked_text_cache is not None:
+        referenced_tokens = {k: v for k, v in mapping.items() if k in masked_text}
+        masked_text_cache[cache_key] = (masked_text, referenced_tokens)
+    return str(masked_text)
+
+
 async def execute_llm_with_retry(
     func: Any,
     kwargs: dict[str, Any],
@@ -349,6 +386,7 @@ async def execute_llm_with_retry(
     max_attempts: int | None = None,
     allow_503_immediate_retry: bool = True,
     turn_token_mapping: dict[str, str] | None = None,
+    masked_text_cache: MaskedTextCache | None = None,
 ) -> Any:
     """
     Executes an LLM call natively or via runner with single-layer exponential backoff retries.
@@ -386,46 +424,52 @@ async def execute_llm_with_retry(
             if isinstance(msg, dict) and msg.get("role") == "system":
                 continue
             if "content" in msg and isinstance(msg["content"], str):
-                masked_content, mapping = await masker.async_mask(msg["content"], existing_mapping=active_mapping)
-                msg["content"] = masked_content
-                active_mapping.update(mapping)
+                msg["content"] = await _mask_text_with_cache(
+                    msg["content"], masker, active_mapping, masked_text_cache
+                )
             elif "content" in msg and isinstance(msg["content"], list):
                 for part in msg["content"]:
                     if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
-                        masked_part, mapping = await masker.async_mask(part["text"], existing_mapping=active_mapping)
-                        part["text"] = masked_part
-                        active_mapping.update(mapping)
+                        part["text"] = await _mask_text_with_cache(
+                            part["text"], masker, active_mapping, masked_text_cache
+                        )
             if "tool_calls" in msg and isinstance(msg["tool_calls"], list):
                 for tc in msg["tool_calls"]:
                     fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
                     if fn:
                         args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", None)
                         if isinstance(args, str):
-                            masked_args, mapping = await masker.async_mask(args, existing_mapping=active_mapping)
+                            masked_args = await _mask_text_with_cache(
+                                args, masker, active_mapping, masked_text_cache
+                            )
                             if isinstance(fn, dict):
                                 fn["arguments"] = masked_args
                             else:
                                 fn.arguments = masked_args
-                            active_mapping.update(mapping)
 
         if "input" in call_kwargs:
             raw_input = call_kwargs["input"]
             if isinstance(raw_input, str):
-                masked_input, mapping = await masker.async_mask(raw_input, existing_mapping=active_mapping)
-                call_kwargs["input"] = masked_input
-                active_mapping.update(mapping)
+                call_kwargs["input"] = await _mask_text_with_cache(
+                    raw_input, masker, active_mapping, masked_text_cache
+                )
             elif isinstance(raw_input, list):
-                masked_items = []
+                masked_items: list[Any] = []
                 for item in raw_input:
                     if isinstance(item, str):
-                        masked_item, mapping = await masker.async_mask(item, existing_mapping=active_mapping)
-                        masked_items.append(masked_item)
-                        active_mapping.update(mapping)
+                        masked_items.append(
+                            await _mask_text_with_cache(
+                                item, masker, active_mapping, masked_text_cache
+                            )
+                        )
                     else:
                         masked_items.append(item)
                 call_kwargs["input"] = masked_items
     else:
         call_kwargs = dict(kwargs)
+
+    if turn_token_mapping is not None and active_mapping:
+        turn_token_mapping.update(active_mapping)
 
     if "messages" in call_kwargs:
         logger.debug(f"[LLM] Prepared prompt for {agent_key}: {call_kwargs.get('messages', [])}")

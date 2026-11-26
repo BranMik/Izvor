@@ -21,6 +21,7 @@ class LLMExecutor(Protocol):
         max_attempts: int = 3,
         allow_503_immediate_retry: bool = True,
         turn_token_mapping: dict[str, str] | None = None,
+        masked_text_cache: dict[str, tuple[str, dict[str, str]]] | None = None,
     ) -> Any: ...
 
 

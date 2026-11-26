@@ -297,6 +297,7 @@ class ExecutionStage:
                 is_superseded_fn=ctx.is_superseded,
                 allow_503_immediate_retry=allow_503_immediate,
                 turn_token_mapping=ctx.turn_token_mapping,
+                masked_text_cache=ctx.turn_masked_text_cache,
             )
 
             if response is None and ctx.is_superseded():

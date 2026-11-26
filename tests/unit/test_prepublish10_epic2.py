@@ -289,7 +289,7 @@ async def test_tool_loop_exhaustion_runs_final_synthesis_call():
 
     async def mock_exec_fn(func, kwargs, **rest):
         captured_kwargs.append(dict(kwargs))
-        if len(captured_kwargs) <= 2:
+        if len(captured_kwargs) == 1:
             return tool_resp
         return synth_resp
 
@@ -300,9 +300,9 @@ async def test_tool_loop_exhaustion_runs_final_synthesis_call():
     )
     await pipeline.execution_stage.stage_execute_llm(ctx)
 
-    # Call 1 (initial tool request) + Call 2 (follow-up still requesting tool) + Call 3 (tool-free synthesis)
-    assert len(captured_kwargs) == 3
-    assert "tools" not in captured_kwargs[2]
+    # Call 1 (initial tool request) + Call 2 (direct tool-free synthesis once max_tool_iterations=1 is reached)
+    assert len(captured_kwargs) == 2
+    assert "tools" not in captured_kwargs[1]
     assert "Core Threat Verdict:" in ctx.output.final_text
     # Verify load_skill received ToolPrincipal with ctx.agent_key (not unknown_agent)
     assert mock_reg.execute_tool_async.await_count == 1

@@ -158,3 +158,138 @@ def test_execution_stage_exposes_tool_loop_runner_properties():
     assert stage.skill_registry is mock_reg
     assert stage.spend_governance is mock_gov
 
+
+@pytest.mark.anyio
+async def test_tool_loop_runner_skips_followup_on_final_iteration_even_with_preamble():
+    """Plan 220: On max_tool_iterations, ToolLoopRunner skips redundant tool-enabled follow-up and runs synthesis even if preamble text was emitted."""
+    captured_kwargs: list[dict] = []
+
+    async def mock_exec(func, kwargs, **rest):
+        captured_kwargs.append(dict(kwargs))
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Final synthesized answer.", tool_calls=None))],
+            usage=None,
+        )
+
+    async def mock_tool(fn_name: str, fn_args: dict) -> str:
+        return '{"results": ["Pinecone", "Qdrant"]}'
+
+    mock_reg = SimpleNamespace(
+        find_skill_for_tool=lambda fn: "web_research",
+        get=lambda name: None,
+        execute_tool_async=AsyncMock(return_value="ok"),
+    )
+
+    tc = SimpleNamespace(
+        id="call_1",
+        function=SimpleNamespace(name="web_search", arguments='{"query": "vector db"}'),
+    )
+    initial_msg = SimpleNamespace(
+        content="Let me search for vector databases first.",
+        tool_calls=[tc],
+        model_dump=lambda: {"role": "assistant", "content": "Let me search for vector databases first."},
+    )
+
+    ctx = TurnContext(channel_id="C_FIN", thread_ts="200.3", raw_text="Compare vector DBs")
+    ctx.agent_key = "agent-10009"
+    ctx.agent_cfg = {"model": "mistral/mistral-large-latest", "skills": ["web_research"]}
+    ctx.messages = [{"role": "user", "content": "Compare vector DBs"}]
+    ctx.turn_token_mapping = {}
+
+    runner = ToolLoopRunner(
+        PipelineDeps(
+            llm_executor=mock_exec,
+            tool_executor=mock_tool,
+            skill_registry=mock_reg,
+            max_tool_iterations=1,
+        )
+    )
+    from unittest.mock import patch
+
+    with patch("services.local_tools.is_agent_authorized_for_tool", return_value=True):
+        res = await runner.run(
+            ctx,
+            active_tools=[{"type": "function", "function": {"name": "web_search"}}],
+            agent_skills=["web_research"],
+            expired_thread_skills=[],
+            thread_ttl_hours=1.0,
+            initial_response_message=initial_msg,
+        )
+
+    assert res is None
+    assert len(captured_kwargs) == 1
+    assert "tools" not in captured_kwargs[0]
+    assert ctx.output.final_text == "Final synthesized answer."
+
+
+def test_turn_finalizer_resolve_synthesis_timeout_honors_system_settings():
+    """Plan 220: TurnFinalizer honors tool_call_loop_timeout_seconds without a hardcoded 30s ceiling."""
+    from config_store.system_settings import system_settings_manager
+
+    orig_timeout = system_settings_manager.get_tool_call_loop_timeout_seconds()
+    try:
+        system_settings_manager.set_tool_call_loop_timeout_seconds(60.0, save=False)
+        finalizer_default = TurnFinalizer(PipelineDeps())
+        assert finalizer_default.resolve_synthesis_timeout() == 60.0
+
+        finalizer_override = TurnFinalizer(PipelineDeps(timeout_secs=45.0))
+        assert finalizer_override.resolve_synthesis_timeout() == 45.0
+    finally:
+        system_settings_manager.set_tool_call_loop_timeout_seconds(orig_timeout, save=False)
+
+
+@pytest.mark.anyio
+async def test_turn_finalizer_logs_exception_type_and_sets_fallback_on_force_synthesis_failure(caplog):
+    """Plan 220: Empty-message TimeoutError and RuntimeError during forced synthesis log type name and populate fallback text."""
+    import logging
+
+    # Case 1: Empty TimeoutError() with tool evidence
+    ctx_to = TurnContext(channel_id="C_FIN", thread_ts="200.4", raw_text="Compare")
+    ctx_to.agent_key = "agent-10009"
+    ctx_to.agent_cfg = {"model": "mistral/mistral-large-latest"}
+    ctx_to.messages = [
+        {"role": "user", "content": "Compare"},
+        {"role": "tool", "tool_call_id": "c1", "name": "web_search", "content": "Pinecone data"},
+    ]
+    ctx_to.turn_token_mapping = {}
+
+    finalizer_to = TurnFinalizer(PipelineDeps(llm_executor=AsyncMock(side_effect=TimeoutError())))
+    with caplog.at_level(logging.WARNING):
+        await finalizer_to.synthesize_if_needed(
+            ctx_to,
+            response_message=SimpleNamespace(content="", tool_calls=[]),
+            tool_calls=None,
+            timed_out_with_evidence=False,
+            iteration=3,
+            max_tool_iterations=3,
+            allow_503_immediate=False,
+            force_synthesis=True,
+        )
+    assert "TimeoutError" in caplog.text
+    assert "timed out" in ctx_to.output.final_text.lower()
+
+    # Case 2: RuntimeError with tool evidence
+    ctx_err = TurnContext(channel_id="C_FIN", thread_ts="200.5", raw_text="Compare")
+    ctx_err.agent_key = "agent-10009"
+    ctx_err.agent_cfg = {"model": "mistral/mistral-large-latest"}
+    ctx_err.messages = [
+        {"role": "user", "content": "Compare"},
+        {"role": "tool", "tool_call_id": "c1", "name": "web_search", "content": "Qdrant data"},
+    ]
+    ctx_err.turn_token_mapping = {}
+
+    finalizer_err = TurnFinalizer(PipelineDeps(llm_executor=AsyncMock(side_effect=RuntimeError("provider 502"))))
+    with caplog.at_level(logging.WARNING):
+        await finalizer_err.synthesize_if_needed(
+            ctx_err,
+            response_message=SimpleNamespace(content="", tool_calls=[]),
+            tool_calls=None,
+            timed_out_with_evidence=False,
+            iteration=3,
+            max_tool_iterations=3,
+            allow_503_immediate=False,
+            force_synthesis=True,
+        )
+    assert "RuntimeError: provider 502" in caplog.text
+    assert "unable to complete tool synthesis" in ctx_err.output.final_text.lower()
+

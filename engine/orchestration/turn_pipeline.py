@@ -172,6 +172,7 @@ class TurnContext:
     thread_language: str
     messages: list[dict[str, Any]]
     turn_token_mapping: dict[str, str]
+    turn_masked_text_cache: dict[str, tuple[str, dict[str, str]]]
     intermediate_msg_ts: str | None
 
     # Observability & Evidence
@@ -294,6 +295,9 @@ class TurnContext:
         self.thread_language: str = kwargs.get("thread_language", "English")
         self.messages: list[dict[str, Any]] = list(kwargs.get("messages", []))
         self.turn_token_mapping: dict[str, str] = dict(kwargs.get("turn_token_mapping", {}))
+        self.turn_masked_text_cache: dict[str, tuple[str, dict[str, str]]] = dict(
+            kwargs.get("turn_masked_text_cache", {})
+        )
         self.intermediate_msg_ts: str | None = kwargs.get("intermediate_msg_ts")
 
         # Explicitly declared typed fields previously monkeypatched (C13)
