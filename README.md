@@ -76,15 +76,15 @@ Managed by [workflow_manager.py](engine/config_store/workflow_manager.py) and [s
 
 ## 3. Architecture Overview
 
-Izvor is structured around a **3-Pillar Physical Layout** ([paths.py](engine/core/paths.py)) and a strict **5-Tier Unidirectional DAG Architecture** (`150` Python files across `11` engine packages):
+Izvor is structured around a **3-Pillar Physical Layout** ([paths.py](engine/core/paths.py)) and a strict **5-Tier Unidirectional DAG Architecture** (`152` Python files across `11` engine packages):
 
 1. **`config/` (Implementer Configuration Pillar)**: Customizable settings ([agent_settings.json](config/settings/agent_settings.json), [system_settings.json](config/settings/system_settings.json)), 16 persona Markdown prompts (`config/personas/`), agent tool skills (`config/skills/`, 4 OOB), custom workflows (`config/workflows/`), and RAG documents (`config/rag_knowledge/`).
-2. **`engine/` (Immutable Core Engine Pillar)**: 150 Python modules across 5 DAG tiers enforced by AST checks in [test_architecture_layers.py](tests/unit/test_architecture_layers.py):
+2. **`engine/` (Immutable Core Engine Pillar)**: 152 Python modules across 5 DAG tiers enforced by AST checks in [test_architecture_layers.py](tests/unit/test_architecture_layers.py):
    - **Tier 1 (`engine/core/`)**: Zero-upward-import foundation (`database.py`, `domain.py`, `models.py`, `paths.py`, `llm_utils.py`, `slack_security.py`, `logging_filters.py`).
    - **Tier 1.5 (`engine/config_store/`)**: Single-Source-of-Truth config & preset persistence (`WorkflowManager`, `AgentSettingsManager`, `SystemSettingsManager`, `AppSettingsManager`, `JsonSettingsStore`, `ConfigIntegrityValidator`).
-   - **Tier 2 (`engine/services/`, `engine/skills/`, `engine/nlp/`, `engine/prompts/`, `engine/pipeline/`)**: Directive parsing, Sandwich/Scatter-Gather routing, hybrid RAG (`LanceDB` + `Tantivy` BM25), MCP client manager, PII masking, HITL, pricing, audit logging, and `ThreadSkillsManager`.
+   - **Tier 2 (`engine/services/`, `engine/skills/`, `engine/nlp/`, `engine/prompts/`, `engine/pipeline/`)**: Directive parsing, Sandwich/Scatter-Gather routing, hybrid RAG (`LanceDB` + `Tantivy` BM25), MCP client manager, PII masking, HITL, pricing, audit logging, `ReadinessRegistry` (`readiness.py`), Prometheus metrics (`metrics.py`), loop-aware telemetry batch flusher (`telemetry.py`), and `ThreadSkillsManager`.
    - **Tier 3 (`engine/orchestration/`, `engine/agents/`)**: `DiscussionLoop`, the 5-stage `TurnPipeline` (`ToolLoopRunner`, `ControlPlaneHandler`, `TurnFinalizer`), `ThreadStateManager`, `RevisorService`, and background support agents (`ThreadNotesAgent`, `UsageAgent`).
-   - **Tier 4 (`engine/api/`, `engine/adapters/slack/`, [main.py](main.py))**: FastAPI server lifespan (`WEB_CONCURRENCY > 1` fail-fast + graceful task drain), Admin & Public REST API (`engine/api/`, `/api/*` incl. `DELETE /api/threads/{channel_id}/{thread_ts}`), Slack webhook ingress, and `SlackWorkspaceAdapter`.
+   - **Tier 4 (`engine/api/`, `engine/adapters/slack/`, [main.py](main.py))**: FastAPI server lifespan (`WEB_CONCURRENCY > 1` fail-fast + graceful task & telemetry drain), Public & Admin REST API (`engine/api/`, incl. `/health/ready`, `/api/health/ready`, `/api/traces`, `/api/metrics`, `DELETE /api/threads/{channel_id}/{thread_ts}`), Slack webhook ingress, and `SlackWorkspaceAdapter`.
 3. **`data/` (Runtime & UI State Pillar)**: Embedded SQLite WAL database (`data/izvor.db` with 11 tables), Slack App Home state (`data/state/app_settings.json`), Presidio exclusions (`data/state/presidio_skill_exclusions.json`), hash-chained audit logs (`data/audit/`), Scribe thread notes (`data/thread_notes/`), thread downloads (`data/downloads/`), exported flat histories (`data/flat-histories/`), LanceDB vector indices (`data/.rag_cache/`), pricing cache (`data/pricing/`), and rolling backups (`data/backups/`).
 
 ---
@@ -159,6 +159,8 @@ python -m venv .venv
 
 pip install --upgrade pip
 pip install -r requirements.txt
+# Or using uv with the reproducible lockfile (uv.lock):
+# uv sync --frozen --no-dev
 ```
 *(See the full [Installation & Configuration Guide](docs/getting-started/installation.md) for development dependencies and `system_settings.json` tuning.)*
 

@@ -154,8 +154,8 @@ Implemented in [`services/web_tools.py`](file:///engine/services/web_tools.py) a
 ## ⏱️ Wall-Clock Execution Timeout & Iteration Cap
 
 Izvor bounds tool calling loops with two limits in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json):
-- **`max_tool_iterations`** (default: `3`): Maximum sequential tool-calling rounds per agent turn.
-- **`tool_call_loop_timeout_seconds`** (default: `60.0` seconds): Maximum wall-clock time for the iterative tool loop. If exceeded, execution is safely terminated and the persona synthesizes the best answer from the evidence gathered so far.
+- **`max_tool_iterations`** (default: `3`): Maximum sequential tool-calling rounds per agent turn. When the final allowed iteration completes (`iteration >= max_tool_iterations`) without pausing, [`ToolLoopRunner`](file:///engine/orchestration/stages/tool_loop_runner.py) skips a redundant tool-enabled follow-up completion and proceeds straight to tool-free synthesis in [`TurnFinalizer`](file:///engine/orchestration/stages/turn_finalizer.py).
+- **`tool_call_loop_timeout_seconds`** (default: `60.0` seconds): Maximum wall-clock time for the iterative tool loop and the bounded timeout for final tool-free synthesis (`resolve_synthesis_timeout()`). If exceeded or if final synthesis fails, execution terminates safely and populates a clear timeout or synthesis-failure fallback notice.
 
 ---
 

@@ -36,12 +36,13 @@ graph TD
     end
 
     subgraph Background Services
-        Lifespan["FastAPI Lifespan (main.py: WEB_CONCURRENCY==1 check + shutdown task drain)"]
+        Lifespan["FastAPI Lifespan (main.py: WEB_CONCURRENCY==1 check + shutdown task & trace drain)"]
         Lifespan --> DBInit["Database Schema Migrations & WAL Init"]
-        Lifespan --> SkillLoad["SkillRegistry.reload() & Pricing Cache Warm-up"]
-        Lifespan --> ThreadPurge["Thread State TTL Purge (Every 10m)"]
+        Lifespan --> SkillLoad["SkillRegistry.reload(), ReadinessRegistry & Pricing Cache Warm-up"]
+        Lifespan --> Flusher["Telemetry Batch Flusher (50 spans / 5.0s) & Drain"]
+        Lifespan --> ThreadPurge["Thread State & Downloads Cleanup (Every 10m)"]
         Lifespan --> AuditGuard["Audit Log Integrity Guard (Every 12h)"]
-        Lifespan --> RetentionPrune["Data Retention Pruner (Every 24h) & Skill Sync"]
+        Lifespan --> RetentionPrune["Data Retention Pruner (retention_prune_interval_seconds) & Skill Sync"]
         Lifespan --> RAGReconcile["RAG Knowledge Reconciliation"]
     end
 ```
@@ -103,7 +104,7 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 ### 3. Periodic Thread State Cleanup (`periodic_thread_state_cleanup`)
 - **File**: [`main.py`](file:///main.py)
 - **Schedule**: Dynamically loaded from `thread_cleanup_interval_seconds` in `system_settings.json` (default: 600.0 seconds / 10 minutes).
-- **Behavior**: Calls [`thread_state_manager.cleanup_expired_threads()`](file:///engine/orchestration/thread_state.py) and `cleanup_old_downloads()`. Frees in-memory session contexts and cached file downloads that have exceeded their idle time-to-live (TTL).
+- **Behavior**: Calls [`thread_state_manager.cleanup_expired_threads()`](file:///engine/orchestration/thread_state.py) and `cleanup_old_downloads()` using `retention_downloads_hours` (default: `24` hours). Frees in-memory session contexts and cached file downloads that have exceeded their idle time-to-live (TTL).
 
 ### 4. Audit Log Integrity Guard (`periodic_audit_integrity_guard`)
 - **File**: [`main.py`](file:///main.py)
@@ -112,8 +113,8 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 
 ### 5. Data Retention & Privacy Pruner (`periodic_retention_prune`)
 - **File**: [`services/retention_service.py`](file:///engine/services/retention_service.py)
-- **Schedule**: Runs immediately at startup and every 24 hours (`86400` seconds).
-- **Behavior**: Executes `prune_expired_records()`, redacting sensitive `messages_json` and `pending_tool_calls_json` from resolved `turn_checkpoints` rows immediately and deleting expired rows from `turn_checkpoints` (`retention_checkpoints_days`: 7d), `turn_traces` (`retention_traces_days`: 30d), and `event_dedup` (`retention_event_dedup_days`: 1d). Also provides channel-scoped GDPR `forget_thread(channel_id, thread_ts)` erasure (purging DB tables, flat histories, Scribe notes, `data/downloads/<cid>_<tts>/`, guardrail LRU embeddings, and registered purge hooks).
+- **Schedule**: Runs immediately at startup and periodically at `retention_prune_interval_seconds` (default: `86400.0` seconds / 24 hours).
+- **Behavior**: Executes `prune_expired_records()`, pruning expired `turn_checkpoints` (`retention_checkpoints_days`: 7d), `turn_traces` (`retention_traces_days`: 30d), `event_dedup` (`retention_event_dedup_days`: 1d), `hitl_approvals` and `thread_skills` (`retention_expired_grace_days`: 7d past expiration), inactive `thread_sessions` and linked context/usage/notes rows (`retention_thread_sessions_days`: 90d), opt-in `spend_ledger` (`retention_spend_ledger_days`: 0 = disabled), cached downloads (`retention_downloads_hours`: 24h), opt-in `data/flat-histories/` and `data/thread_notes/` Markdown archives (`retention_flat_histories_days`: 0 = disabled), and safe closed-month `audit_anchors` compaction (`retention_audit_anchors_compact_enabled`: `true`). Also provides channel-scoped GDPR `forget_thread(channel_id, thread_ts)` erasure (purging DB tables, telemetry traces, flat histories, Scribe notes, `data/downloads/<cid>_<tts>/`, guardrail LRU embeddings, and registered purge hooks).
 
 ### 6. Model Pricing Cache Warmup (`warm_up_pricing_cache`)
 - **File**: [`services/pricing_service.py`](file:///engine/services/pricing_service.py)
@@ -122,6 +123,10 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 ### 7. RAG Knowledge Reconciliation (`rag_sync_engine.reconcile`)
 - **File**: [`services/rag/sync_engine.py`](file:///engine/services/rag/sync_engine.py)
 - **Behavior**: Scans `config/rag_knowledge/` for new, changed, or deleted documents, updating manifest hashes, `__meta__.config_hash` drift re-indexing, and LanceDB/Tantivy index vectors.
+
+### 8. Readiness Registry & Telemetry Batch Flusher
+- **Files**: [`services/readiness.py`](file:///engine/services/readiness.py), [`services/telemetry.py`](file:///engine/services/telemetry.py), [`services/metrics.py`](file:///engine/services/metrics.py)
+- **Behavior**: `readiness_registry` tracks `database` (critical, HTTP 503 on failure) and non-critical warm-up subsystems (`audit_integrity`, `pricing_cache`, `rag_sync`, `retention_prune`, `pii_masker`, `mcp_discovery`) surfaced on `GET /health/ready` and `GET /api/health/ready`, while `GET /api/metrics` renders Prometheus text metrics. `start_telemetry_flusher()` runs a loop-aware single-flight batch worker (`50` spans / `5.0s`), drained cleanly on shutdown by `drain_turn_traces()`.
 
 ---
 
@@ -139,7 +144,7 @@ Izvor enforces a strict 3-tier architectural separation to isolate **implementer
      - `config/avatars/` — Custom persona avatar images served at `/static/*` and `/avatars/*`.
      - `config/rag_knowledge/` — Per-agent and shared knowledge base documents indexed by the RAG engine.
 2. **`engine/` (Immutable Core Engine & Built-ins Tier)**:
-   - Contains core application packages (**150 `.py` files** across **11 packages** enforced by a 5-tier unidirectional DAG) and built-in engine definitions:
+   - Contains core application packages (**152 `.py` files** across **11 packages** enforced by a 5-tier unidirectional DAG) and built-in engine definitions:
      - `engine/settings/system_agent_settings.json` — Engine-level configuration for the `orchestrator` and internal `system_agents` (`InternalRevisor`, `Challenger`, `Arbitrator`, `DiscussionScribe`).
      - `engine/workflows/` — Immutable seed workflow templates (`default_review_flow.json`, `default_sandwich.json`, `parallel_dialectic_flow.json`) used for integrity validation and factory resets.
      - `engine/skills/builtin/` — **18 built-in** orchestration modifier, directive, and control-plane skills (`control_plane`, `first`, `forget_thread`, `rounds`, `max_words`, `min_words`, `open_debate`, `grant_skill`, `revoke_constraint`, `stop_discussion`, etc.).
@@ -166,7 +171,7 @@ Izvor/
 │   ├── settings/                   # agent_settings.json & system_settings.json
 │   ├── skills/                     # Configurable agent tool skills (web_research, knowledge_base_rag, etc.)
 │   └── workflows/                  # Custom workflow topology presets
-├── engine/                         # PILLAR 2: Immutable Core Engine (150 .py files, 11 packages, 5 DAG Tiers)
+├── engine/                         # PILLAR 2: Immutable Core Engine (152 .py files, 11 packages, 5 DAG Tiers)
 │   ├── adapters/slack/             # Tier 4: Slack Webhook listeners, event routing, WorkspaceAdapter port
 │   │   └── actions/                # agent_actions, governance_actions, hitl_actions, scribe_actions, workflow_presets
 │   ├── agents/                     # Tier 3: System support agents (ThreadNotesAgent, UsageAgent)
@@ -180,7 +185,7 @@ Izvor/
 │   │   └── state/                  # Domain state stores (discussion, context, evidence, retry stores)
 │   ├── pipeline/                   # Tier 2: Entity resolver, directive parser, sandwich orchestrator, scribe, spend governance
 │   ├── prompts/                    # Tier 2: Prompt builder, shared rules, and system_agents/ prompt templates
-│   ├── services/                   # Tier 2: Pricing, audit logger, HITL, retention, telemetry, thread_skills_store, local/web/MCP tools
+│   ├── services/                   # Tier 2: Pricing, audit logger, HITL, metrics, readiness, retention, telemetry, thread_skills_store, local/web/MCP tools
 │   │   ├── rag/                    # Hybrid LanceDB/Tantivy BM25 RAG engine, parser, sync engine, vector store
 │   │   ├── security/               # GuardrailService (heuristic + sliding-window + indirect screening) & PIIMasker
 │   │   ├── slack/                  # Modular Slack WebClient wrapper (client_core, messages, files, views)
@@ -199,7 +204,7 @@ Izvor/
 │   ├── thread_notes/               # Channel-scoped Scribe live & conclusion note exports
 │   └── izvor.db                    # SQLite WAL state engine (11 tables)
 └── tests/                          # Test suites (unit/, integration/, e2e/ behavioral harness)
-    ├── unit/                       # Isolated component tests, parsers, and static checkers (66 files)
-    ├── integration/                # Multi-component, pipeline, SQLite, and Slack API tests (37 files)
+    ├── unit/                       # Isolated component tests, parsers, and static checkers (71 files)
+    ├── integration/                # Multi-component, pipeline, SQLite, and Slack API tests (38 files)
     └── e2e/                        # Synthetic Slack event and multi-turn behavioral simulation harness (8 files)
 ```

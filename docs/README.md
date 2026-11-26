@@ -32,14 +32,14 @@ docs/
 │   ├── slack-app-home.md                  # App Home UI Configuration, Settings SSOT & Backups
 │   ├── security-and-auth.md               # Slack HMAC Verification, Guardrails, Admin Gates & HITL
 │   ├── audit-logging-integrity.md         # Non-Repudiable HMAC Keyring Audit Logs & SQLite Anchors
-│   └── rest-api-reference.md              # REST Endpoints (/health, /api/skills, /api/rag/*, /api/audit/*, /api/threads/*)
+│   └── rest-api-reference.md              # REST Endpoints (/health, /health/ready, /api/health/ready, /api/traces, /api/metrics, /api/skills, /api/rag/*, /api/audit/*, /api/threads/*)
 ├── user-guide/                            # End-User Manual & Slack Interactions
 │   ├── interacting-in-slack.md            # Mentioning Personas, Thread Discussions & Interruption
 │   ├── directives-and-slash-syntax.md     # Bracketed Directives, Word Limits, Rounds & GDPR Purge
 │   └── thread-notes-and-exports.md        # Flat Histories, Scribe Summaries & Exports
 └── development-and-testing/               # Developer Guide & Testing
     ├── e2e-testing-harness.md             # Hybrid Interceptor, Protocol Client & Scenarios
-    ├── test-suite.md                      # Running 103 Unit/Integration Files (1,025 Tests), Hygiene & Mocks
+    ├── test-suite.md                      # Running 109 Unit/Integration Files (1,098 Tests), Parallel CI, Fail-Closed Guards & Hygiene
     └── contributing.md                    # Engineering Guidelines, Policies & Code Standards
 ```
 

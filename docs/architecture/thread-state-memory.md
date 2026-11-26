@@ -66,7 +66,7 @@ The SQLite state engine is initialized on startup in write-ahead logging (`WAL`)
 | `thread_usage_meta` | Stores per-thread cost summaries and Slack usage report message timestamps (replacing legacy JSON file writes). | [`ThreadUsageTracker`](file:///engine/agents/usage_agent.py) |
 | `thread_notes_state` | Persists live Scribe note timestamps, final conclusion note timestamps, synthesized content, and pin status per thread. | [`ThreadNotesAgent`](file:///engine/agents/thread_notes_agent.py) |
 | `turn_checkpoints` | Stores durable point-in-turn conversation snapshots (`messages_json`, `pending_tool_calls_json`, `iteration`) when a turn pauses for HITL approval or circuit-breaker confirmation. | [`TurnCheckpointStore`](file:///engine/services/turn_checkpoint_store.py) |
-| `turn_traces` | Persists structured stage-by-stage execution spans (`stage_name`, `duration_ms`, `status`, `metadata_json`) via a non-blocking write-behind batch queue. | [`TurnTraceRecorder`](file:///engine/services/telemetry.py) |
+| `turn_traces` | Persists structured stage-by-stage execution spans (`stage_name`, `duration_ms`, `status`, `metadata_json`) via a loop-aware single-flight batch flusher (`start_telemetry_flusher`, 50-span / `5.0s` batching, `10,000`-span cap, `drain_turn_traces()` on shutdown), queryable via `GET /api/traces` and exported to `GET /api/metrics`. | [`services.telemetry`](file:///engine/services/telemetry.py) |
 | `audit_anchors` | Stores cryptographic head-hash anchors `(month, seq, entry_hash, anchored_at)` to detect tail truncation or file deletion of monthly JSONL audit logs. | [`services.audit_logger`](file:///engine/services/audit_logger.py) |
 
 ---
@@ -129,11 +129,15 @@ Izvor enforces multi-layered memory and disk hygiene:
 - **Persistent Archival**: Completed turn transcripts are archived to `data/flat-histories/` (`FLAT_HISTORIES_DIR` in [`core/paths.py`](file:///engine/core/paths.py)) via [`services/flat_history_recorder.py`](file:///engine/services/flat_history_recorder.py).
 
 ### 3. Automated Database Retention & GDPR Erasure ([`services/retention_service.py`](file:///engine/services/retention_service.py))
-- **`prune_expired_records()` (Runs at Startup & Every 24 Hours)**:
-  - Immediately scrubs sensitive `messages_json` and `pending_tool_calls_json` payloads from `turn_checkpoints` rows once their status transitions out of `paused`.
-  - Deletes resolved `turn_checkpoints` older than `retention_checkpoints_days` (default: `7` days).
+- **`prune_expired_records()` (Runs at Startup & at `retention_prune_interval_seconds`, default `86400.0`s / 24h)**:
+  - Deletes `turn_checkpoints` rows where `expires_at < now` or `created_at` exceeds `retention_checkpoints_days` (default: `7` days).
   - Deletes `turn_traces` spans older than `retention_traces_days` (default: `30` days).
   - Deletes `event_dedup` entries older than `retention_event_dedup_days` (default: `1` day).
+  - Deletes expired `hitl_approvals` and `thread_skills` rows past `retention_expired_grace_days` (default: `7` days past `expires_at`).
+  - Cascades inactive (`status != 'active'`) `thread_sessions` older than `retention_thread_sessions_days` (default: `90` days; `0` disables) along with linked `thread_context`, `thread_usage_meta`, and `thread_notes_state` rows.
+  - Supports opt-in `spend_ledger` pruning via `retention_spend_ledger_days` (default: `0` = disabled) and opt-in Markdown archive cleanup in `data/flat-histories/` and `data/thread_notes/` via `retention_flat_histories_days` (default: `0` = disabled).
+  - Evicts cached Slack attachment downloads in `data/downloads/` older than `retention_downloads_hours` (default: `24` hours; `0` disables).
+  - Compacts closed past-month `audit_anchors` rows when `retention_audit_anchors_compact_enabled` is `true` (keeping terminal `MAX(seq)` for on-disk `audit_YYYY_MM.jsonl` files and removing orphaned months).
 - **`forget_thread(channel_id, thread_ts)` (Channel-Scoped Right-to-Forget)**:
   - Invoked via admin slash command `/forget_thread` or REST endpoint `DELETE /api/threads/{channel_id}/{thread_ts}`.
   - Atomically purges all channel- and thread-scoped records for `(channel_id, thread_ts)` across all SQLite tables (`turn_checkpoints`, `turn_traces`, `thread_notes_state`, `thread_usage_meta`, `thread_context`, `thread_sessions`, `thread_skills`, `hitl_approvals`, `spend_ledger`), deletes channel-scoped flat histories (`data/flat-histories/`), deletes Scribe notes (`data/thread_notes/`), removes thread-scoped attachment folders (`data/downloads/<cid>_<tts>/`), clears `guardrail_service` LRU embeddings (`guardrail_service.clear_cache()`), clears `spend_governance` session budgets, invokes all registered thread purge hooks (`usage_tracker`, `thread_notes`, `thread_state`), and logs non-repudiable `THREAD_DATA_PURGED` / `GDPR_THREAD_FORGOTTEN` audit events.

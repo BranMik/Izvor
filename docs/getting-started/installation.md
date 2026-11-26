@@ -62,7 +62,7 @@ Izvor utilizes:
 - `mcp` for external Model Context Protocol (`stdio` / `sse` / `streamable_http`) client integration.
 - `httpx`, `httpcore`, `ddgs`, `beautifulsoup4`, and `pypdf` for SSRF-guarded web research and document parsing.
 - `pydantic` and `pyyaml` for domain models, configuration validation, and `SKILL.md` frontmatter parsing.
-- Standard-library `sqlite3` (`WAL` mode) for zero-infrastructure ACID state persistence, and `ruff` (optional dev group in `pyproject.toml`) for static linting.
+- Standard-library `sqlite3` (`WAL` mode) for zero-infrastructure ACID state persistence, plus `ruff`, `mypy`, `pytest-xdist`, and `pip-audit` (`[dependency-groups].dev` in [`pyproject.toml`](file:///pyproject.toml) and [`uv.lock`](file:///uv.lock)) for linting, strict core/protocol type checking, parallel tests, and dependency vulnerability auditing.
 
 ---
 
@@ -115,7 +115,7 @@ All domain-specific customization lives inside `config/`:
 - **Avatars & RAG Knowledge ([`config/avatars/`](file:///config/avatars), [`config/rag_knowledge/`](file:///config/rag_knowledge))**: Drop custom avatar PNGs into `config/avatars/` and domain markdown/text/PDF documents into `config/rag_knowledge/shared/` or `config/rag_knowledge/<agent_id>/`.
 
 ### 2. Core Engine & Built-ins (`engine/`) — *Do Not Modify During Configuration*
-The `engine/` directory contains the core Python runtime (**146 modules** across **10 packages**, including `engine/config_store/`) and immutable system definitions. Avoid modifying files in `engine/` unless performing a deliberate architectural refactoring:
+The `engine/` directory contains the core Python runtime (**152 modules** across **11 packages**, including `engine/config_store/` and `engine/api/`) and immutable system definitions. Avoid modifying files in `engine/` unless performing a deliberate architectural refactoring:
 - **System Agents & Orchestrator ([`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json))**: Immutable baseline configuration for the `orchestrator` (`fast_model`, `reasoning_model`) and the **4 built-in `system_agents`** (`InternalRevisor`, `Challenger`, `Arbitrator`, and `DiscussionScribe`). Runtime overrides modified via Slack App Home are written to `data/settings/system_agent_settings.json`.
 - **Built-in System Prompts ([`engine/prompts/system_agents/`](file:///engine/prompts/system_agents) & [`engine/prompts/shared/`](file:///engine/prompts/shared))**: Core prompt assembly rules, nomination syntax, and system prompt templates (`Arbitrator.md`, `Challenger.md`, `Discussion_Scribe_Live.md`, `Discussion_Scribe_Conclusion.md`, `InternalRevisor.md`, `Intent_Extractor.md`, `Language_Detector.md`, `Pricing_Agent.md`).
 - **Built-in Control & Modifier Skills ([`engine/skills/builtin/`](file:///engine/skills/builtin))**: **18 built-in** orchestration and directive skills (`control_plane`, `first`, `forget_thread`, `rounds`, `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `open_debate`, `grant_skill`, `grant_skill_for_all`, `revoke_skill_for_all`, `revoke_constraint`, `exclude_agents`, `include_agents`, `list_skills`, `stop_discussion`, `thread_history`).
@@ -143,7 +143,7 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `internal_revisor_enabled` | `true` | Enables Two-Stage `InternalRevisor` post-turn hallucination/contradiction verification. |
 | `shared_evidence_max_chars` | `40000` | Maximum character budget for `<shared_round_evidence>` and `<retrieved_evidence>` blocks. |
 | `debate_turn_pacing_seconds` | `3.0` | Delay between consecutive agent turns to prevent flooding. |
-| `tool_call_loop_timeout_seconds` | `60.0` | Maximum wall-clock execution time for iterative tool calling loops. |
+| `tool_call_loop_timeout_seconds` | `60.0` | Maximum wall-clock execution time for iterative tool calling loops and bounded final tool-free synthesis. |
 | `slack_post_pause_seconds` | `2.0` | Brief pause before posting to Slack to allow human visual parsing. |
 | `max_file_size_mb` | `50.0` | Maximum allowable file size (MB) for uploads and workspace document reading. |
 | `max_write_bytes` | `1048576` | Hard ceiling in bytes (1 MB) for individual `write_document` workspace writes. |
@@ -206,7 +206,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ### Windows Proactor Loop Notice
 
-On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///main.py#L86-L92) to keep the loop responsive without measurable CPU overhead.
+On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///main.py#L73-L79) to keep the loop responsive without measurable CPU overhead.
 
 ### Health Check Verification
 

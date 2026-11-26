@@ -226,17 +226,73 @@ This document provides complete technical specifications for the HTTP endpoints 
 - **Endpoint**: `GET /api/health/ready`
 - **Authentication**: Admin Basic Auth
 - **Behavior**: Returns HTTP `200 OK` (`status`: `"ready"` or `"degraded"` for non-fatal warmup failures) or HTTP `503 Service Unavailable` (`"starting"` or `"unhealthy"` if `database` fails), with per-component details (`database`, `audit_integrity`, `pricing_cache`, `rag_sync`, `retention_prune`, `pii_masker`, `mcp_discovery`).
+- **Response** (`200 OK` / `503 Service Unavailable`, `AdminReadinessResponse`):
+```json
+{
+  "status": "ready",
+  "service": "Izvor Multi-Agent Hub",
+  "startup_complete": true,
+  "components": {
+    "database": {
+      "status": "ready",
+      "detail": "",
+      "critical": true,
+      "updated_at": 1790455180.12
+    },
+    "rag_sync": {
+      "status": "ready",
+      "detail": "",
+      "critical": false,
+      "updated_at": 1790455181.45
+    }
+  }
+}
+```
 
 ### 7.2 Turn Execution Traces
 - **Endpoint**: `GET /api/traces`
 - **Authentication**: Admin Basic Auth
 - **Query Parameters**: `session_id`, `channel_id`, `thread_ts`, `agent_key`, `status`, `limit` (`1..500`, default `50`).
 - **Behavior**: Flushes buffered telemetry spans and returns matching `TurnPipeline` stage execution spans (`validation`, `resolution`, `context_prep`, `execution`, `post_record`).
+- **Response** (`200 OK`, `TurnTracesResponse`):
+```json
+{
+  "count": 1,
+  "traces": [
+    {
+      "trace_id": "3f9a7d2c-8c1e-4b6b-9f41-9d2a1b4e5c01",
+      "session_id": "C0123456789:1790455185.000100",
+      "channel_id": "C0123456789",
+      "thread_ts": "1790455185.000100",
+      "agent_key": "agent-10001",
+      "stage_name": "execution",
+      "duration_ms": 842.5,
+      "prompt_tokens": 1120,
+      "completion_tokens": 145,
+      "tools_called": ["search_knowledge_rag"],
+      "status": "SUCCESS",
+      "error_message": null,
+      "created_at": 1790455190.25
+    }
+  ]
+}
+```
 
 ### 7.3 Prometheus Metrics
 - **Endpoint**: `GET /api/metrics`
 - **Authentication**: Admin Basic Auth
 - **Response** (`200 OK`, `text/plain; version=0.0.4; charset=utf-8`): Exposes `izvor_up`, `izvor_readiness_component_status`, `izvor_active_background_tasks`, `izvor_telemetry_*`, `izvor_thread_sessions_total`, `izvor_turn_traces_total`, `izvor_turn_trace_duration_ms_*`, `izvor_spend_usd_total`, `izvor_tokens_total`, and `izvor_turn_checkpoints_total`.
+```text
+# HELP izvor_up Whether Izvor is critically ready to serve traffic (1 = ready/degraded, 0 = starting/unhealthy).
+# TYPE izvor_up gauge
+izvor_up 1
+# HELP izvor_active_background_tasks Number of currently active tracked background asyncio tasks.
+# TYPE izvor_active_background_tasks gauge
+izvor_active_background_tasks 0
+# HELP izvor_spend_usd_total Total recorded LLM spend in USD across the spend_ledger.
+# TYPE izvor_spend_usd_total counter
+izvor_spend_usd_total 0.14285
+```
 
 ---
 
@@ -259,11 +315,17 @@ This document provides complete technical specifications for the HTTP endpoints 
 ## 💻 cURL Examples
 
 ```bash
-# Public health check
+# Public health & readiness checks
 curl http://localhost:8000/health
+curl http://localhost:8000/health/ready
 
-# Authenticated admin health check
+# Authenticated admin health & subsystem readiness (authenticated)
 curl -u admin:YourAdminPassword http://localhost:8000/api/health
+curl -u admin:YourAdminPassword http://localhost:8000/api/health/ready
+
+# Query turn traces & Prometheus metrics (authenticated)
+curl -u admin:YourAdminPassword "http://localhost:8000/api/traces?limit=20"
+curl -u admin:YourAdminPassword http://localhost:8000/api/metrics
 
 # Query registered skills (authenticated)
 curl -u admin:YourAdminPassword http://localhost:8000/api/skills

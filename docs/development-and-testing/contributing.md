@@ -78,6 +78,9 @@ To implement a new skill:
 
 ## 🎨 Code Style & Quality
 
-- Python 3.11+ syntax with explicit type hints (`typing` / built-in generics) configured in [`pyproject.toml`](file:///pyproject.toml).
-- Format and lint code using `ruff` and adhere to PEP 8 standards.
-- Run `cmd /c .venv\Scripts\python.exe -u -m pytest` before finalizing any changes.
+- Python 3.11+ syntax with explicit type hints (`typing` / built-in generics) configured in [`pyproject.toml`](file:///pyproject.toml) and [`uv.lock`](file:///uv.lock) (`uv sync --frozen --group dev`).
+- Enforce all quality gates run by GitHub Actions CI ([`.github/workflows/ci.yml`](file:///.github/workflows/ci.yml)) before finalizing changes:
+  - `cmd /c .venv\Scripts\python.exe -m ruff check .` (also enforced automatically in [`test_code_hygiene.py`](file:///tests/unit/test_code_hygiene.py))
+  - `cmd /c .venv\Scripts\python.exe -m mypy engine/core engine/orchestration/protocols.py` (strict typing on Tier 1 core & protocols)
+  - `cmd /c .venv\Scripts\python.exe -m pip_audit` and `cmd /c uv lock --check`
+  - `cmd /c .venv\Scripts\python.exe -u -m pytest -n auto --dist loadscope` (adhering to fail-closed LLM/Slack test guards and `@pytest.mark.presidio` scoping for real spaCy/Presidio NER tests)

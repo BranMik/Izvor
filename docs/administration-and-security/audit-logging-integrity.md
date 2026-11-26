@@ -43,6 +43,7 @@ Izvor supports both single-key (`AUDIT_HMAC_SECRET`) and multi-key rotation via 
 A classic weakness of file-only hash chains is **tail truncation** (where an attacker deletes the last $K$ lines of a JSONL file or deletes the entire file so the remaining prefix still looks internally valid).
 - Every write to `audit_YYYY_MM.jsonl` updates the `audit_anchors` table in SQLite (`data/izvor.db`) with `(month, seq, entry_hash, anchored_at)`.
 - During integrity verification, `verify_audit_logs()` compares the JSONL file's final `(seq, entry_hash)` against the SQLite anchor. If the file has fewer records than `audit_anchors.seq`, lacks a matching `entry_hash`, or is missing on disk while an anchor exists, verification immediately flags a critical **Tail Truncation / Anchor Mismatch** violation.
+- **Safe Closed-Month Anchor Compaction**: When `retention_audit_anchors_compact_enabled` is `true` (default), `prune_expired_records()` in [`services/retention_service.py`](file:///engine/services/retention_service.py) compacts intermediate rows for closed past months while always preserving the terminal `MAX(seq)` anchor row for every existing on-disk `audit_YYYY_MM.jsonl` file, skipping the active UTC month, and removing orphaned anchor rows whose JSONL files no longer exist.
 
 ---
 

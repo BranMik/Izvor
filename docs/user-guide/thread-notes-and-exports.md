@@ -93,7 +93,7 @@ When users share files in Slack threads:
 3. Extracted text is wrapped in `<untrusted_file_content>` security boundaries, enabling debate personas to critique the uploaded RFC or specification without risking prompt injection.
 
 > [!NOTE]
-> **GDPR Channel-Scoped Erasure**: Running `@Izvor /forget_thread` in Slack or calling `DELETE /api/threads/{channel_id}/{thread_ts}` permanently purges the thread's SQLite rows, channel-scoped flat history Markdown transcript in `data/flat-histories/`, Scribe notes in `data/thread_notes/`, thread download directory in `data/downloads/<channel_id>_<thread_ts>/`, and in-memory caches.
+> **GDPR Channel-Scoped Erasure & Retention Policies**: Running `@Izvor /forget_thread` in Slack or calling `DELETE /api/threads/{channel_id}/{thread_ts}` permanently purges the thread's SQLite rows, channel-scoped flat history Markdown transcript in `data/flat-histories/`, Scribe notes in `data/thread_notes/`, thread download directory in `data/downloads/<channel_id>_<thread_ts>/`, and in-memory caches. For scheduled lifecycle cleanup in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json), cached attachment downloads expire after `retention_downloads_hours` (default `24` hours), while `data/flat-histories/` and `data/thread_notes/` retention (`retention_flat_histories_days`) defaults to `0` (opt-in disabled).
 
 ---
 
