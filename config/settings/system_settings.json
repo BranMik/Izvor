@@ -74,5 +74,12 @@
   "retention_checkpoints_days": 7,
   "retention_traces_days": 30,
   "retention_event_dedup_days": 1,
+  "retention_expired_grace_days": 7,
+  "retention_thread_sessions_days": 90,
+  "retention_spend_ledger_days": 0,
+  "retention_downloads_hours": 24,
+  "retention_flat_histories_days": 0,
+  "retention_audit_anchors_compact_enabled": true,
+  "retention_prune_interval_seconds": 86400.0,
   "mcp_servers": {}
 }

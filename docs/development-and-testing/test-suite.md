@@ -65,7 +65,21 @@ tests/
 By default, running `pytest` automatically executes all tests in `tests/unit/` and `tests/integration/`, while cleanly bypassing `tests/e2e/`:
 
 ```bash
+# Parallel execution with pytest-xdist (recommended, <60s)
+cmd /c .venv\Scripts\python.exe -u -m pytest -n auto --dist loadscope
+
+# Sequential execution
 cmd /c .venv\Scripts\python.exe -u -m pytest
+```
+
+### 1.1 Static Linting, Type Checking, Lockfile & Vulnerability Audit (CI Gates)
+GitHub Actions CI ([`.github/workflows/ci.yml`](file:///.github/workflows/ci.yml)) runs the full quality gate suite on every push and pull request:
+
+```bash
+cmd /c .venv\Scripts\python.exe -m ruff check .
+cmd /c .venv\Scripts\python.exe -m mypy engine/core engine/orchestration/protocols.py
+cmd /c .venv\Scripts\python.exe -m pip_audit
+cmd /c uv lock --check
 ```
 
 ### 2. Running E2E Behavioral Simulation Suite

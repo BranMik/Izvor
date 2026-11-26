@@ -4,7 +4,7 @@ Provides zero-infrastructure ACID state storage using standard library sqlite3 i
 """
 
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 import logging
 from pathlib import Path
 import sqlite3
@@ -403,6 +403,9 @@ class DatabaseManager:
             cursor = conn.execute("PRAGMA user_version;")
             row = cursor.fetchone()
             current_version = int(row[0]) if row else 0
+            if current_version >= MIGRATIONS[-1][0]:
+                self._initialized_paths.add(resolved)
+                return
             for version, description, statements in MIGRATIONS:
                 if version > current_version:
                     conn.execute("BEGIN IMMEDIATE;")
@@ -557,6 +560,10 @@ class DatabaseManager:
             cursor = conn.execute("PRAGMA user_version;")
             row = cursor.fetchone()
             current_version = int(row[0]) if row else 0
+            if current_version >= MIGRATIONS[-1][0]:
+                with self._init_lock:
+                    self._initialized_paths.add(self.db_path.resolve())
+                return
             for version, description, statements in MIGRATIONS:
                 if version > current_version:
                     for stmt in statements:
@@ -582,11 +589,11 @@ class DatabaseManager:
 db_manager = DatabaseManager()
 
 
-def get_connection() -> Generator[sqlite3.Connection, None, None]:
+def get_connection() -> AbstractContextManager[sqlite3.Connection]:
     return db_manager.get_connection()
 
 
-def get_db_transaction(immediate: bool = True) -> Generator[sqlite3.Connection, None, None]:
+def get_db_transaction(immediate: bool = True) -> AbstractContextManager[sqlite3.Connection]:
     return db_manager.transaction(immediate=immediate)
 
 

@@ -578,12 +578,22 @@ async def upload_text_file_to_slack(
         return {"ok": False, "error": str(e)}
 
 
-def cleanup_old_downloads(max_age_seconds: float = 86400.0, downloads_dir: Path | None = None) -> int:
+def cleanup_old_downloads(max_age_seconds: float | None = None, downloads_dir: Path | None = None) -> int:
     """
-    Cleans up cached downloaded Slack files older than max_age_seconds (default 24h),
+    Cleans up cached downloaded Slack files older than max_age_seconds
+    (defaults to retention_downloads_hours * 3600 from system_settings.json),
     recursing into thread-scoped subdirectories and pruning empty subdirs.
     Returns the count of evicted files.
     """
+    if max_age_seconds is None:
+        from config_store.system_settings import get_retention_downloads_hours
+
+        hours = get_retention_downloads_hours()
+        if hours <= 0:
+            return 0
+        effective_max_age = float(hours) * 3600.0
+    else:
+        effective_max_age = float(max_age_seconds)
     now = time.time()
     evicted_count = 0
     target_dir = (downloads_dir or get_downloads_dir()).resolve()
@@ -595,7 +605,7 @@ def cleanup_old_downloads(max_age_seconds: float = 86400.0, downloads_dir: Path 
             if item.is_file():
                 try:
                     mtime = item.stat().st_mtime
-                    if (now - mtime) > max_age_seconds:
+                    if (now - mtime) > effective_max_age:
                         item.unlink(missing_ok=True)
                         evicted_count += 1
                 except Exception as e:  # noqa: BLE001
@@ -611,5 +621,5 @@ def cleanup_old_downloads(max_age_seconds: float = 86400.0, downloads_dir: Path 
         logger.debug(f"[CLEANUP] Error inspecting downloads directory {target_dir}: {e}")
 
     if evicted_count > 0:
-        logger.info(f"[CLEANUP] Pruned {evicted_count} downloaded file(s) older than {max_age_seconds}s")
+        logger.info(f"[CLEANUP] Pruned {evicted_count} downloaded file(s) older than {effective_max_age}s")
     return evicted_count

@@ -223,6 +223,12 @@ PROCESSED_EVENTS: EventDeduplicationCache = EventDeduplicationCache(ttl_seconds=
 _SKILLS_SLASH_CACHE: tuple[tuple[str, ...], re.Pattern] | None = None
 
 
+def reset_skills_slash_cache() -> None:
+    """Clears the cached compiled skills slash-command regex for test isolation."""
+    global _SKILLS_SLASH_CACHE
+    _SKILLS_SLASH_CACHE = None
+
+
 def _get_skills_slash_regex() -> re.Pattern | None:
     global _SKILLS_SLASH_CACHE
     try:

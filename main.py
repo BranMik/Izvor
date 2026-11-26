@@ -68,7 +68,6 @@ setup_credential_redaction_filters()
 logger = logging.getLogger("IzvorBackend")
 
 WIN32_HEARTBEAT_INTERVAL_SECONDS = 0.5
-RETENTION_PRUNE_INTERVAL_SECONDS = 86400.0  # 24 hours
 
 
 async def keep_loop_alive():
@@ -93,7 +92,9 @@ async def periodic_thread_state_cleanup():
             cleaned = thread_state_manager.cleanup_expired_threads()
             if cleaned > 0:
                 logger.info(f"[CLEANUP] Pruned {cleaned} inactive thread state(s)")
-            await asyncio.to_thread(cleanup_old_downloads)
+            downloads_hours = system_settings_manager.get_retention_downloads_hours()
+            if downloads_hours > 0:
+                await asyncio.to_thread(cleanup_old_downloads, float(downloads_hours) * 3600.0)
         except asyncio.CancelledError:
             break
         except Exception:
@@ -132,13 +133,13 @@ async def periodic_audit_integrity_guard():
 async def periodic_retention_prune():
     """
     Periodically prunes expired database records (checkpoints, traces, event deduplication, etc.)
-    every 24 hours.
+    at the interval configured in system_settings.json.
     """
     from services.retention_service import prune_expired_records
 
     while True:
         try:
-            await asyncio.sleep(RETENTION_PRUNE_INTERVAL_SECONDS)
+            await asyncio.sleep(system_settings_manager.get_retention_prune_interval_seconds())
             await asyncio.to_thread(prune_expired_records)
         except asyncio.CancelledError:
             break
@@ -229,8 +230,19 @@ async def lifespan(app: FastAPI):
 
     # Ensure SQLite schema and WAL mode are initialized before any queries execute
     from core.database import init_db
+    from services.readiness import readiness_registry
 
-    init_db()
+    try:
+        init_db()
+        readiness_registry.mark_component("database", "ready", critical=True)
+    except Exception as db_init_err:
+        readiness_registry.mark_component(
+            "database",
+            "failed",
+            detail=f"{type(db_init_err).__name__}: {str(db_init_err)[:160]}",
+            critical=True,
+        )
+        raise
 
     # Enforce non-repudiable audit HMAC secret configuration fail-fast
     from services.audit_logger import validate_audit_configuration
@@ -252,6 +264,12 @@ async def lifespan(app: FastAPI):
     from services.audit_logger import send_admin_audit_alert
 
     audit_status = AppIntegrityValidator.check_audit_log_integrity()
+    readiness_registry.mark_component(
+        "audit_integrity",
+        "ready" if audit_status.get("valid", False) else "degraded",
+        detail="; ".join(audit_status.get("errors", []))[:200],
+        critical=False,
+    )
     hmac_check = audit_status.get("hmac_continuity", {})
 
     if hmac_check and not hmac_check.get("matches", True):
@@ -311,22 +329,36 @@ async def lifespan(app: FastAPI):
     from services.audit_logger import set_main_event_loop
     from services.retention_service import prune_expired_records
     from services.mcp.client_manager import mcp_client_manager
+    from services.telemetry import start_telemetry_flusher
 
     set_main_event_loop(asyncio.get_running_loop())
 
     # Eager startup warm-ups and reconciliations awaited concurrently before signaling readiness
+    warmup_specs = [
+        ("pricing_cache", pricing_service.warm_up_cache()),
+        ("rag_sync", rag_sync_engine.reconcile()),
+        ("retention_prune", asyncio.to_thread(prune_expired_records)),
+        ("pii_masker", pii_masker.warm_up()),
+        ("mcp_discovery", mcp_client_manager.discover_all_enabled_servers()),
+    ]
     warmup_results = await asyncio.gather(
-        pricing_service.warm_up_cache(),
-        rag_sync_engine.reconcile(),
-        asyncio.to_thread(prune_expired_records),
-        pii_masker.warm_up(),
-        mcp_client_manager.discover_all_enabled_servers(),
+        *(coro for _, coro in warmup_specs),
         return_exceptions=True,
     )
-    for res in warmup_results:
-        if isinstance(res, Exception):
-            logger.warning(f"[STARTUP] Non-fatal exception during startup warm-up: {res}")
+    for (comp_name, _), res in zip(warmup_specs, warmup_results):
+        if isinstance(res, BaseException):
+            logger.warning(f"[STARTUP] Non-fatal exception during startup warm-up ({comp_name}): {res}")
+            readiness_registry.mark_component(
+                comp_name,
+                "degraded",
+                detail=f"{type(res).__name__}: {str(res)[:160]}",
+                critical=False,
+            )
+        else:
+            readiness_registry.mark_component(comp_name, "ready", critical=False)
 
+    start_telemetry_flusher()
+    readiness_registry.mark_startup_complete(True)
     logger.info("[STARTUP] Application Startup Complete")
 
     background_tasks: list[asyncio.Task] = []
@@ -339,6 +371,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        readiness_registry.mark_startup_complete(False)
         set_main_event_loop(None)
         for task in background_tasks:
             task.cancel()

@@ -44,7 +44,7 @@ def test_python_ast_compilation_and_hygiene():
         failed_files
     )
 
-    # Optional Ruff F821 check if ruff is installed in the current environment
+    # Optional Ruff full check if ruff is installed in the current environment
     try:
         ruff_check = subprocess.run(
             [sys.executable, "-m", "ruff", "--version"],
@@ -54,15 +54,14 @@ def test_python_ast_compilation_and_hygiene():
             check=False,
         )
         if ruff_check.returncode == 0:
-            existing_targets = [t for t in targets if (root_dir / t).exists()]
             res = subprocess.run(
-                [sys.executable, "-m", "ruff", "check", "--select", "F821", *existing_targets],
+                [sys.executable, "-m", "ruff", "check", "."],
                 cwd=root_dir,
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            assert res.returncode == 0, f"Ruff F821 undefined variable check failed:\n{res.stdout}\n{res.stderr}"
+            assert res.returncode == 0, f"Ruff check failed:\n{res.stdout}\n{res.stderr}"
     except FileNotFoundError:
         pass
 

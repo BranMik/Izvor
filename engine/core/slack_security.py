@@ -21,7 +21,7 @@ _MAX_TRACKER_ENTRIES = 1000
 
 _burst_limits_provider: Callable[[], dict[str, Any]] | None = None
 _audit_logger_hook: Callable[..., Any] | None = None
-_secret_scanner_hook: Callable[[str, str], str | None] | None = None
+_secret_scanner_hook: Callable[..., str | None] | None = None
 
 
 def set_burst_limits_provider(provider: Callable[[], dict[str, Any]] | None) -> None:
@@ -36,7 +36,7 @@ def set_audit_logger_hook(hook: Callable[..., Any] | None) -> None:
     _audit_logger_hook = hook
 
 
-def set_secret_scanner_hook(hook: Callable[[str, str], str | None] | None) -> None:
+def set_secret_scanner_hook(hook: Callable[..., str | None] | None) -> None:
     """Injectable secret scanner hook, decoupling core/slack_security from services."""
     global _secret_scanner_hook
     _secret_scanner_hook = hook
@@ -70,6 +70,15 @@ _auth_failure_lock = threading.Lock()
 _auth_failure_tracker: dict[str, dict[str, Any]] = {}
 _global_burst_window_start: float = 0.0
 _global_burst_count: int = 0
+
+
+def reset_auth_failure_tracker() -> None:
+    """Resets the in-memory auth failure rate tracker for clean test isolation."""
+    global _global_burst_window_start, _global_burst_count
+    with _auth_failure_lock:
+        _auth_failure_tracker.clear()
+        _global_burst_window_start = 0.0
+        _global_burst_count = 0
 
 
 _trust_proxy_headers_override: bool | None = None
@@ -246,7 +255,7 @@ def _record_auth_failure_audit(client_id: str) -> None:
             logger.debug(f"[SECURITY] Failed to record auth failure audit: {e}")
 
 
-def verify_slack_signature(body_bytes: bytes, headers: dict, signing_secret: str | None = None) -> bool:
+def verify_slack_signature(body_bytes: bytes, headers: Mapping[str, str], signing_secret: str | None = None) -> bool:
     """
     Verifies that the incoming HTTP request is genuinely sent from Slack
     using HMAC SHA256 signature verification.
@@ -355,7 +364,7 @@ def sanitize_slack_blocks(
         return obj
 
     sanitized = _walk_and_sanitize(blocks_copy)
-    return sanitized, matched_rule
+    return (sanitized if isinstance(sanitized, list) else blocks_copy), matched_rule
 
 
 

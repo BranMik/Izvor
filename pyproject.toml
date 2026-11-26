@@ -26,7 +26,7 @@ dependencies = [
     "pyyaml>=6.0,<7.0",
     "lancedb>=0.17.0,<1.0.0",
     "pandas>=2.2.0,<3.0.0",
-    "pyarrow>=15.0.0,<20.0.0",
+    "pyarrow>=15.0.0,<26.0.0",
     "tantivy>=0.22.0,<1.0.0",
     "presidio-analyzer>=2.2.0",
     "spacy>=3.8.0",
@@ -40,8 +40,12 @@ dependencies = [
 dev = [
     "pytest>=8.3.0,<10.0.0",
     "anyio>=4.0.0,<5.0.0",
-    "datasets>=3.0.0,<4.0.0",
+    "datasets>=3.0.0,<6.0.0",
     "ruff>=0.8.0,<1.0.0",
+    "mypy>=1.15.0,<2.0.0",
+    "types-PyYAML>=6.0.12",
+    "pytest-xdist>=3.6.0,<4.0.0",
+    "pip-audit>=2.7.0,<3.0.0",
 ]
 
 [tool.pytest.ini_options]
@@ -80,3 +84,18 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "main.py" = ["E402"]
 "tests/**" = ["BLE001", "S110"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = ["engine"]
+explicit_package_bases = true
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["core.*", "orchestration.protocols"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["litellm", "litellm.*", "services.*", "agents.*", "pipeline.*"]
+follow_imports = "skip"

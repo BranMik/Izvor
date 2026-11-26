@@ -5,13 +5,13 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_ACTIVE_TASKS: set[asyncio.Task] = set()
+_ACTIVE_TASKS: set[asyncio.Task[Any]] = set()
 
 
 def safe_create_task(
     coro: Coroutine[Any, Any, Any],
     name: str | None = None,
-) -> asyncio.Task:
+) -> asyncio.Task[Any]:
     """
     Creates an asyncio.Task while retaining a strong module-level reference
     until completion to prevent premature garbage collection.
@@ -20,7 +20,7 @@ def safe_create_task(
     task = asyncio.create_task(coro, name=name)
     _ACTIVE_TASKS.add(task)
 
-    def _done_callback(t: asyncio.Task) -> None:
+    def _done_callback(t: asyncio.Task[Any]) -> None:
         _ACTIVE_TASKS.discard(t)
         if not t.cancelled():
             exc = t.exception()

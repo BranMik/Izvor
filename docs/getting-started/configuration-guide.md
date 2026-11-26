@@ -487,8 +487,9 @@ Under `"rag"` in [`config/settings/system_settings.json`](file:///config/setting
 | `pii_masking` | `"AT_RETRIEVAL"` | `"AT_RETRIEVAL"` (masks PII when excerpts enter agent context), `"AT_INGESTION"` (masks before embedding with shared per-doc `token_mapping`), or `"NONE"`. |
 | `guardrail_threshold` | `0.85` | Cosine similarity threshold for prompt-injection guardrail checks. |
 
-Top-level P2 guardrail, PII NER, and audit keyring keys configurable in `system_settings.json` (with `SystemSettingsModel` defaults):
+Top-level P2/P3 guardrail, PII NER, audit keyring, and retention keys configurable in `system_settings.json` (with `SystemSettingsModel` defaults):
 - `guardrail_chunk_chars` (`800`), `guardrail_chunk_overlap_chars` (`200`), `guardrail_max_chunks` (`8`), `guardrail_indirect_embedding_enabled` (`false`), `pii_ner_models` (`["en_core_web_sm"]`), `audit_hmac_key_id` (`"default"`), `skill_exclusions_sync_interval_seconds` (`86400.0`).
+- **Scheduled Retention (`retention_*`):** `retention_checkpoints_days` (`7`), `retention_traces_days` (`30`), `retention_event_dedup_days` (`1`), `retention_expired_grace_days` (`7`), `retention_thread_sessions_days` (`90`), `retention_downloads_hours` (`24`), `retention_audit_anchors_compact_enabled` (`true`), `retention_prune_interval_seconds` (`86400.0`), plus opt-in archive windows defaulting to `0` (disabled): `retention_spend_ledger_days` (`0`) and `retention_flat_histories_days` (`0`).
 
 ---
 

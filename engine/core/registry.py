@@ -5,7 +5,7 @@ from typing import Any
 
 _skill_registry_provider: Callable[[], Any] | None = None
 _workspace_adapter_factory: Callable[..., Any] | None = None
-_token_recorder_hook: Callable[..., Any] | None = None
+_token_recorder_hook: Callable[..., dict[str, Any]] | None = None
 _initial_agents_provider: Callable[[str | None, str | None], list[str]] | None = None
 _thread_state_provider: Callable[[], Any] | None = None
 
@@ -37,7 +37,7 @@ def get_default_workspace_adapter_factory() -> Callable[..., Any] | None:
     return _workspace_adapter_factory
 
 
-def register_token_recorder(recorder: Callable[..., Any] | None) -> None:
+def register_token_recorder(recorder: Callable[..., dict[str, Any]] | None) -> None:
     """Registers token usage recorder callback (decouples L2 nlp/skills from L3 agents)."""
     global _token_recorder_hook
     _token_recorder_hook = recorder

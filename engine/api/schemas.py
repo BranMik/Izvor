@@ -58,3 +58,53 @@ class ThreadDeleteResponse(BaseModel):
     channel_id: str
     thread_ts: str
     deleted: dict[str, Any]
+
+
+class PublicReadinessResponse(BaseModel):
+    """Minimal unauthenticated readiness probe response."""
+
+    status: str
+    service: str
+
+
+class ComponentReadinessItem(BaseModel):
+    """Readiness details for a single application subsystem."""
+
+    status: str
+    detail: str
+    critical: bool
+    updated_at: float
+
+
+class AdminReadinessResponse(BaseModel):
+    """Detailed authenticated readiness probe response."""
+
+    status: str
+    service: str
+    startup_complete: bool
+    components: dict[str, ComponentReadinessItem]
+
+
+class TurnTraceItemResponse(BaseModel):
+    """Single TurnPipeline stage execution trace span."""
+
+    trace_id: str
+    session_id: str
+    channel_id: str
+    thread_ts: str
+    agent_key: str
+    stage_name: str
+    duration_ms: float
+    prompt_tokens: int
+    completion_tokens: int
+    tools_called: list[str]
+    status: str
+    error_message: str | None = None
+    created_at: float
+
+
+class TurnTracesResponse(BaseModel):
+    """Response envelope listing queried turn execution traces."""
+
+    count: int
+    traces: list[TurnTraceItemResponse]

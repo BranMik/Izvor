@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from api.dependencies import (
     get_rag_sync_engine,
@@ -14,11 +14,14 @@ from api.dependencies import (
 )
 from api.schemas import (
     AdminHealthResponse,
+    AdminReadinessResponse,
     PublicHealthResponse,
+    PublicReadinessResponse,
     RagReconcileResponse,
     RagStatusResponse,
     SkillsListResponse,
     ThreadDeleteResponse,
+    TurnTracesResponse,
 )
 from core.config import AGENTS_CONFIG
 
@@ -34,6 +37,24 @@ async def health_check() -> PublicHealthResponse:
         status="healthy",
         service="Izvor Multi-Agent Hub",
     )
+
+
+@public_router.get("/health/ready", response_model=PublicReadinessResponse)
+async def public_readiness_check() -> JSONResponse:
+    """
+    Minimal unauthenticated readiness probe for container/load-balancer health checks.
+    Returns HTTP 200 when critically ready ('ready' or non-fatal 'degraded'), and HTTP 503
+    when startup is incomplete ('starting') or a critical subsystem failed ('unhealthy').
+    """
+    from services.readiness import readiness_registry
+
+    summary = readiness_registry.get_summary()
+    code = status.HTTP_200_OK if summary["ready"] else status.HTTP_503_SERVICE_UNAVAILABLE
+    payload = PublicReadinessResponse(
+        status=summary["status"],
+        service="Izvor Multi-Agent Hub",
+    )
+    return JSONResponse(content=payload.model_dump(), status_code=code)
 
 
 @public_router.get("/openapi.json", include_in_schema=False)
@@ -194,4 +215,70 @@ async def delete_thread_data(
         channel_id=channel_id,
         thread_ts=thread_ts,
         deleted=deleted,
+    )
+
+
+@api_router.get(
+    "/health/ready",
+    dependencies=[Depends(verify_admin_basic_auth)],
+    response_model=AdminReadinessResponse,
+)
+async def admin_readiness_check() -> JSONResponse:
+    """
+    Detailed authenticated readiness probe reporting startup completion and per-component health.
+    Returns HTTP 200 for 'ready' or non-fatal 'degraded', and HTTP 503 for 'starting' or 'unhealthy'.
+    """
+    from services.readiness import readiness_registry
+
+    summary = readiness_registry.get_summary()
+    code = status.HTTP_200_OK if summary["ready"] else status.HTTP_503_SERVICE_UNAVAILABLE
+    payload = AdminReadinessResponse(
+        status=summary["status"],
+        service="Izvor Multi-Agent Hub",
+        startup_complete=summary["startup_complete"],
+        components=summary["components"],
+    )
+    return JSONResponse(content=payload.model_dump(), status_code=code)
+
+
+@api_router.get(
+    "/traces",
+    dependencies=[Depends(verify_admin_basic_auth)],
+    response_model=TurnTracesResponse,
+)
+async def list_turn_traces(
+    session_id: str | None = None,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+    agent_key: str | None = None,
+    trace_status: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> TurnTracesResponse:
+    """Queries recorded TurnPipeline stage execution spans after flushing buffered telemetry."""
+    from services.telemetry import get_turn_traces
+
+    rows = await asyncio.to_thread(
+        get_turn_traces,
+        session_id=session_id,
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        agent_key=agent_key,
+        status=trace_status,
+        limit=limit,
+    )
+    return TurnTracesResponse(count=len(rows), traces=rows)
+
+
+@api_router.get(
+    "/metrics",
+    dependencies=[Depends(verify_admin_basic_auth)],
+)
+async def get_prometheus_metrics() -> PlainTextResponse:
+    """Exposes runtime, readiness, telemetry, and spend metrics in Prometheus v0.0.4 text format."""
+    from services.metrics import render_prometheus_metrics
+
+    body = await asyncio.to_thread(render_prometheus_metrics)
+    return PlainTextResponse(
+        content=body,
+        media_type="text/plain; version=0.0.4; charset=utf-8",
     )

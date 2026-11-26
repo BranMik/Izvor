@@ -6,7 +6,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 ## 🔒 Authentication
 
-- **Public Endpoints** (`/`, `/health`): Require no authentication. Hardened to return minimal status without exposing internal agent identifiers or configuration topology.
+- **Public Endpoints** (`/`, `/health`, `/health/ready`): Require no authentication. Hardened to return minimal status without exposing internal agent identifiers or configuration topology.
 - **Administrative Endpoints** (`/api/*`): Require **HTTP Basic Authentication**.
   - Username: Set by `ADMIN_USERNAME` in environment/.env (default: `admin`).
   - Password: Set by `ADMIN_PASSWORD` in environment/.env.
@@ -21,10 +21,14 @@ This document provides complete technical specifications for the HTTP endpoints 
 |---|---|---|---|
 | `GET` | `/` | Public | Lightweight health check status. |
 | `GET` | `/health` | Public | Lightweight health check status. |
+| `GET` | `/health/ready` | Public | Minimal readiness probe (`200` for `ready`/`degraded`, `503` for `starting`/`unhealthy`). |
 | `POST` | `/slack/events` | Slack HMAC | Inbound Slack Events API webhook (app mentions, thread replies, file-only DM uploads, URL verification challenge). |
 | `POST` | `/slack/actions` | Slack HMAC | Inbound Slack interactive shortcuts and action handlers. |
 | `POST` | `/slack/interactivity` | Slack HMAC | Inbound Slack Block Kit actions, App Home configuration modals, and HITL approvals. |
 | `GET` | `/api/health` | Admin | Authenticated health check exposing active registered persona keys (`16` OOB personas). |
+| `GET` | `/api/health/ready` | Admin | Detailed subsystem readiness breakdown (`database`, `audit_integrity`, `pricing_cache`, `rag_sync`, `retention_prune`, `pii_masker`, `mcp_discovery`). |
+| `GET` | `/api/traces` | Admin | Query recorded `TurnPipeline` stage execution spans (`session_id`, `channel_id`, `thread_ts`, `agent_key`, `status`, `limit`). |
+| `GET` | `/api/metrics` | Admin | Prometheus `text/plain; version=0.0.4` metrics exposition (readiness, active tasks, telemetry, sessions, spend, checkpoints). |
 | `GET` | `/api/skills` | Admin | Returns all `22` registered dynamic skills (`4` configurable + `18` built-in), descriptions, and schemas. |
 | `GET` | `/api/rag/status` | Admin | Returns RAG manifest status and total indexed documents. |
 | `POST` | `/api/rag/reconcile` | Admin | Triggers an immediate on-demand reconciliation of `config/rag_knowledge/`. |
@@ -42,6 +46,20 @@ This document provides complete technical specifications for the HTTP endpoints 
 ```json
 {
   "status": "healthy",
+  "service": "Izvor Multi-Agent Hub"
+}
+```
+
+---
+
+### 1.1 Public Readiness Probe
+- **Endpoint**: `GET /health/ready`
+- **Authentication**: None
+- **Behavior**: Returns HTTP `200 OK` when startup is complete and critical subsystems (`database`) are healthy (`status` is `"ready"` or `"degraded"` for non-fatal warmup failures). Returns HTTP `503 Service Unavailable` when `"starting"` or `"unhealthy"`.
+- **Response** (`200 OK` / `503 Service Unavailable`):
+```json
+{
+  "status": "ready",
   "service": "Izvor Multi-Agent Hub"
 }
 ```
@@ -201,6 +219,24 @@ This document provides complete technical specifications for the HTTP endpoints 
   }
 }
 ```
+
+---
+
+### 7.1 Authenticated Subsystem Readiness
+- **Endpoint**: `GET /api/health/ready`
+- **Authentication**: Admin Basic Auth
+- **Behavior**: Returns HTTP `200 OK` (`status`: `"ready"` or `"degraded"` for non-fatal warmup failures) or HTTP `503 Service Unavailable` (`"starting"` or `"unhealthy"` if `database` fails), with per-component details (`database`, `audit_integrity`, `pricing_cache`, `rag_sync`, `retention_prune`, `pii_masker`, `mcp_discovery`).
+
+### 7.2 Turn Execution Traces
+- **Endpoint**: `GET /api/traces`
+- **Authentication**: Admin Basic Auth
+- **Query Parameters**: `session_id`, `channel_id`, `thread_ts`, `agent_key`, `status`, `limit` (`1..500`, default `50`).
+- **Behavior**: Flushes buffered telemetry spans and returns matching `TurnPipeline` stage execution spans (`validation`, `resolution`, `context_prep`, `execution`, `post_record`).
+
+### 7.3 Prometheus Metrics
+- **Endpoint**: `GET /api/metrics`
+- **Authentication**: Admin Basic Auth
+- **Response** (`200 OK`, `text/plain; version=0.0.4; charset=utf-8`): Exposes `izvor_up`, `izvor_readiness_component_status`, `izvor_active_background_tasks`, `izvor_telemetry_*`, `izvor_thread_sessions_total`, `izvor_turn_traces_total`, `izvor_turn_trace_duration_ms_*`, `izvor_spend_usd_total`, `izvor_tokens_total`, and `izvor_turn_checkpoints_total`.
 
 ---
 

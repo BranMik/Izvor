@@ -12,7 +12,7 @@ import re
 from typing import Any
 
 # Regex patterns matching high-sensitivity tokens and API keys
-_CREDENTIAL_PATTERNS: list[tuple[re.Pattern, str]] = [
+_CREDENTIAL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # Private Key blocks
     (
         re.compile(
@@ -151,8 +151,9 @@ class CredentialRedactionFilter(logging.Filter):
                 record.exc_text = "[Failed to format exception traceback]"
         elif record.exc_text:
             record.exc_text = redact_text(record.exc_text)
-        if getattr(record, "stack_text", None):
-            record.stack_text = redact_text(record.stack_text)
+        stack_text = getattr(record, "stack_text", None)
+        if isinstance(stack_text, str) and stack_text:
+            setattr(record, "stack_text", redact_text(stack_text))
         return True
 
 

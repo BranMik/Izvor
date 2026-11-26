@@ -38,15 +38,19 @@ python -m venv .venv
 
 ### 3. Install Dependencies
 
-For production or runtime execution:
+For production or runtime execution (`requirements.txt` or reproducible `uv.lock`):
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
+# Or with uv (reproducible lockfile):
+uv sync --frozen --no-dev
 ```
 
-For local development and running the test suite (managed via [`pyproject.toml`](file:///pyproject.toml) and [`requirements-dev.txt`](file:///requirements-dev.txt)):
+For local development and running the test suite (managed via [`pyproject.toml`](file:///pyproject.toml), [`uv.lock`](file:///uv.lock), and [`requirements-dev.txt`](file:///requirements-dev.txt)):
 ```bash
 pip install -r requirements-dev.txt
+# Or with uv:
+uv sync --frozen --group dev
 ```
 
 Izvor utilizes:
@@ -177,6 +181,13 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `retention_checkpoints_days` | `7` | Retention window in days before expired `turn_checkpoints` rows are deleted. |
 | `retention_traces_days` | `30` | Retention window in days before `turn_traces` telemetry spans are deleted. |
 | `retention_event_dedup_days` | `1` | Retention window in days before `event_dedup` rows are purged. |
+| `retention_expired_grace_days` | `7` | Grace window in days past expiration before `hitl_approvals` and `thread_skills` rows are deleted. |
+| `retention_thread_sessions_days` | `90` | Retention window in days before inactive `thread_sessions` (and linked context/usage/notes rows) are purged (`0` disables). |
+| `retention_spend_ledger_days` | `0` | Opt-in retention window in days before `spend_ledger` rows are deleted (`0` = disabled by default). |
+| `retention_downloads_hours` | `24` | TTL in hours before cached Slack attachments in `data/downloads/` are evicted (`0` disables). |
+| `retention_flat_histories_days` | `0` | Opt-in retention window in days before `data/flat-histories/` and `data/thread_notes/` Markdown archives are deleted (`0` = disabled by default). |
+| `retention_audit_anchors_compact_enabled` | `true` | Compacts intermediate `audit_anchors` rows on closed past months (always keeping terminal `MAX(seq)` for on-disk `audit_YYYY_MM.jsonl` files) and prunes orphaned months. |
+| `retention_prune_interval_seconds` | `86400.0` | Background interval in seconds between scheduled `prune_expired_records()` runs (24 hours). |
 | `workspace_write_blacklist_additional` | `[]` | Additional filename patterns blocked from workspace `write_document` operations. |
 | `rag` | `{...}` | Chunking and LanceDB embedding settings (`max_chunk_chars: 1500`, `chunk_overlap_chars: 300`, `min_chunk_chars: 80`, `default_top_k: 3`, `embedding_model: "gemini/gemini-embedding-001"`, `embedding_dim: 3072`, `embedding_batch_size: 32`, `pii_masking: "AT_RETRIEVAL"`, `guardrail_threshold: 0.85`). |
 | `mcp_servers` | `{}` | External MCP server configurations (`stdio`, `sse`, `streamable_http` transports). |

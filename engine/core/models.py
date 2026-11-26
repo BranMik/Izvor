@@ -311,6 +311,8 @@ class WorkflowPreset:
             "scatter_gather",
         )
         mode = raw_mode if raw_mode in valid_modes else OrchestrationMode.SANDWICH.value
+        sandwich_config: dict[str, list[str]]
+        fixed_config: dict[str, list[str]]
         if mode == OrchestrationMode.FIXED.value:
             fixed_config = dict(data.get("fixed_config") or {"chain": []})
             sandwich_config = {"start_chain": [], "end_chain": []}

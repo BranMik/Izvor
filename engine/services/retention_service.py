@@ -14,8 +14,14 @@ import time
 from typing import Any
 
 from config_store.system_settings import (
+    get_retention_audit_anchors_compact_enabled,
     get_retention_checkpoints_days,
+    get_retention_downloads_hours,
     get_retention_event_dedup_days,
+    get_retention_expired_grace_days,
+    get_retention_flat_histories_days,
+    get_retention_spend_ledger_days,
+    get_retention_thread_sessions_days,
     get_retention_traces_days,
 )
 from core.database import get_db_transaction
@@ -38,17 +44,60 @@ def unregister_thread_purge_hook(name: str) -> None:
         _thread_purge_hooks.pop(name, None)
 
 
+def _prune_old_markdown_files(directory: Any, cutoff_ts: float) -> int:
+    """Deletes *.md files in `directory` older than `cutoff_ts` based on file mtime."""
+    if not directory.exists() or not directory.is_dir():
+        return 0
+    deleted = 0
+    for md_file in list(directory.glob("*.md")):
+        try:
+            if md_file.is_file() and md_file.stat().st_mtime < cutoff_ts:
+                md_file.unlink(missing_ok=True)
+                deleted += 1
+        except OSError as exc:
+            logger.debug(f"[RETENTION] Failed pruning archive file {md_file}: {exc}")
+    return deleted
+
+
+def _get_on_disk_audit_months() -> set[str]:
+    """Scans audit_logger.audit_dir for existing audit_YYYY_MM.jsonl files and returns normalized month keys."""
+    from services.audit_logger import audit_logger
+
+    base_dir = audit_logger.audit_dir
+    months: set[str] = set()
+    if not base_dir.exists() or not base_dir.is_dir():
+        return months
+    for path in base_dir.glob("audit_*.jsonl"):
+        stem = path.stem  # e.g. audit_2026_11
+        if stem.startswith("audit_"):
+            raw_month = stem[len("audit_") :]
+            if raw_month:
+                months.add(raw_month.replace("-", "_"))
+    return months
+
+
 def prune_expired_records(
     retention_checkpoints_days: int | None = None,
     retention_traces_days: int | None = None,
     retention_event_dedup_days: int | None = None,
+    retention_expired_grace_days: int | None = None,
+    retention_thread_sessions_days: int | None = None,
+    retention_spend_ledger_days: int | None = None,
+    retention_downloads_hours: int | None = None,
+    retention_flat_histories_days: int | None = None,
+    compact_audit_anchors: bool | None = None,
 ) -> dict[str, int]:
     """
-    Deletes expired records across SQLite tables:
+    Deletes expired records across SQLite tables and filesystem caches using centralized system_settings:
     - turn_checkpoints older than retention_checkpoints_days or where expires_at < now
     - turn_traces older than retention_traces_days
-    - event_dedup older than retention_event_dedup_days (default 1 day)
-    - hitl_approvals and thread_skills older than 7 days past expiration timestamp
+    - event_dedup older than retention_event_dedup_days
+    - hitl_approvals and thread_skills older than retention_expired_grace_days past expiration
+    - inactive thread_sessions (cascading to thread_context, thread_usage_meta, thread_notes_state)
+    - spend_ledger older than retention_spend_ledger_days (opt-in; 0 = disabled)
+    - safe audit_anchors compaction on closed past months (keeping terminal MAX(seq) per on-disk JSONL month)
+    - downloaded Slack attachments older than retention_downloads_hours
+    - flat-histories and thread_notes markdown archives older than retention_flat_histories_days (opt-in; 0 = disabled)
     """
     chk_days = (
         retention_checkpoints_days if retention_checkpoints_days is not None else get_retention_checkpoints_days()
@@ -57,12 +106,36 @@ def prune_expired_records(
     event_days = (
         retention_event_dedup_days if retention_event_dedup_days is not None else get_retention_event_dedup_days()
     )
+    grace_days = (
+        retention_expired_grace_days if retention_expired_grace_days is not None else get_retention_expired_grace_days()
+    )
+    sessions_days = (
+        retention_thread_sessions_days
+        if retention_thread_sessions_days is not None
+        else get_retention_thread_sessions_days()
+    )
+    spend_days = (
+        retention_spend_ledger_days if retention_spend_ledger_days is not None else get_retention_spend_ledger_days()
+    )
+    downloads_hours = (
+        retention_downloads_hours if retention_downloads_hours is not None else get_retention_downloads_hours()
+    )
+    flat_days = (
+        retention_flat_histories_days
+        if retention_flat_histories_days is not None
+        else get_retention_flat_histories_days()
+    )
+    compact_anchors = (
+        compact_audit_anchors
+        if compact_audit_anchors is not None
+        else get_retention_audit_anchors_compact_enabled()
+    )
 
     now = time.time()
     chk_cutoff = now - (chk_days * 86400.0)
     trace_cutoff = now - (trace_days * 86400.0)
     event_cutoff = now - (event_days * 86400.0)
-    expired_grace_cutoff = now - (7 * 86400.0)
+    expired_grace_cutoff = now - (grace_days * 86400.0)
 
     pruned_counts: dict[str, int] = {
         "turn_checkpoints": 0,
@@ -70,6 +143,12 @@ def prune_expired_records(
         "event_dedup": 0,
         "hitl_approvals": 0,
         "thread_skills": 0,
+        "thread_sessions": 0,
+        "spend_ledger": 0,
+        "audit_anchors": 0,
+        "downloads": 0,
+        "flat_histories": 0,
+        "thread_notes": 0,
     }
 
     try:
@@ -95,30 +174,106 @@ def prune_expired_records(
             )
             pruned_counts["event_dedup"] = c_events.rowcount
 
-            # 4. Expired HITL approvals (7 days past expiry)
+            # 4. Expired HITL approvals
             c_hitl = conn.execute(
                 "DELETE FROM hitl_approvals WHERE expires_at < ?;",
                 (expired_grace_cutoff,),
             )
             pruned_counts["hitl_approvals"] = c_hitl.rowcount
 
-            # 5. Expired thread skills (7 days past expiry)
+            # 5. Expired thread skills
             c_skills = conn.execute(
                 "DELETE FROM thread_skills WHERE expires_at < ?;",
                 (expired_grace_cutoff,),
             )
             pruned_counts["thread_skills"] = c_skills.rowcount
 
+            # 6. Inactive thread_sessions cascade (when sessions_days > 0)
+            if sessions_days > 0:
+                sessions_cutoff = now - (sessions_days * 86400.0)
+                stale_sessions = conn.execute(
+                    "SELECT channel_id, thread_ts FROM thread_sessions WHERE last_activity < ? AND status != 'active';",
+                    (sessions_cutoff,),
+                ).fetchall()
+                if stale_sessions:
+                    stale_keys = [(row["channel_id"], row["thread_ts"]) for row in stale_sessions]
+                    for tbl in ("thread_context", "thread_usage_meta", "thread_notes_state", "thread_sessions"):
+                        cur = conn.executemany(
+                            f"DELETE FROM {tbl} WHERE channel_id = ? AND thread_ts = ?;",
+                            stale_keys,
+                        )
+                        if tbl == "thread_sessions":
+                            pruned_counts["thread_sessions"] = cur.rowcount
+
+            # 7. Opt-in spend_ledger pruning (0 = disabled)
+            if spend_days > 0:
+                spend_cutoff = now - (spend_days * 86400.0)
+                c_spend = conn.execute(
+                    "DELETE FROM spend_ledger WHERE timestamp < ?;",
+                    (spend_cutoff,),
+                )
+                pruned_counts["spend_ledger"] = c_spend.rowcount
+
+            # 8. Safe audit_anchors compaction & orphan pruning
+            if compact_anchors:
+                current_month_underscore = time.strftime("%Y_%m", time.gmtime(now))
+                on_disk_months = _get_on_disk_audit_months()
+                anchor_months = [
+                    row["month"]
+                    for row in conn.execute("SELECT DISTINCT month FROM audit_anchors;").fetchall()
+                    if row["month"]
+                ]
+                anchors_pruned = 0
+                for raw_month in anchor_months:
+                    normalized_month = str(raw_month).replace("-", "_")
+                    if normalized_month == current_month_underscore:
+                        continue
+                    if normalized_month in on_disk_months:
+                        c_anc = conn.execute(
+                            "DELETE FROM audit_anchors WHERE month = ? AND seq < (SELECT MAX(seq) FROM audit_anchors WHERE month = ?);",
+                            (raw_month, raw_month),
+                        )
+                    else:
+                        c_anc = conn.execute(
+                            "DELETE FROM audit_anchors WHERE month = ?;",
+                            (raw_month,),
+                        )
+                    anchors_pruned += max(0, int(c_anc.rowcount))
+                pruned_counts["audit_anchors"] = anchors_pruned
+
         logger.info(
-            f"[RETENTION] Pruned expired records: "
-            f"checkpoints={pruned_counts['turn_checkpoints']}, "
-            f"traces={pruned_counts['turn_traces']}, "
-            f"event_dedup={pruned_counts['event_dedup']}, "
-            f"hitl={pruned_counts['hitl_approvals']}, "
-            f"skills={pruned_counts['thread_skills']}"
+            "[RETENTION] Pruned expired records: "
+            + ", ".join(f"{k}={v}" for k, v in pruned_counts.items() if k in {
+                "turn_checkpoints", "turn_traces", "event_dedup", "hitl_approvals",
+                "thread_skills", "thread_sessions", "spend_ledger", "audit_anchors",
+            })
         )
     except Exception as e:  # noqa: BLE001
         logger.error(f"[RETENTION] Error pruning expired records: {e}")
+
+    # 9. Filesystem cleanup (outside DB transaction)
+    if downloads_hours > 0:
+        try:
+            from services.slack.files import cleanup_old_downloads
+
+            pruned_counts["downloads"] = cleanup_old_downloads(max_age_seconds=float(downloads_hours) * 3600.0)
+        except Exception as dl_err:  # noqa: BLE001
+            logger.debug(f"[RETENTION] Error pruning downloads: {dl_err}")
+
+    if flat_days > 0:
+        flat_cutoff = now - (flat_days * 86400.0)
+        try:
+            from services.flat_history_recorder import get_flat_histories_dir
+
+            pruned_counts["flat_histories"] = _prune_old_markdown_files(get_flat_histories_dir(), flat_cutoff)
+        except Exception as fh_err:  # noqa: BLE001
+            logger.debug(f"[RETENTION] Error pruning flat histories: {fh_err}")
+        try:
+            from services.thread_notes_writer import get_thread_notes_dir
+
+            pruned_counts["thread_notes"] = _prune_old_markdown_files(get_thread_notes_dir(), flat_cutoff)
+        except Exception as tn_err:  # noqa: BLE001
+            logger.debug(f"[RETENTION] Error pruning thread notes: {tn_err}")
 
     return pruned_counts
 

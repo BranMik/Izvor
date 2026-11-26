@@ -287,10 +287,10 @@ def classify_agent_error(e: Exception) -> str:
 def _calculate_backoff_delay(attempt: int) -> float:
     """Computes exponential backoff delay (with bounded jitter outside deterministic test sleep injection)."""
     base = float(get_llm_retry_backoff_base())
-    delay = base * (2 ** max(0, attempt - 1))
+    delay: float = base * float(2 ** max(0, attempt - 1))
     if _llm_sleep_fn is None:
         delay += random.uniform(0.0, 0.25 * base)
-    return delay
+    return float(delay)
 
 
 def is_high_demand_503_error(e: Exception) -> bool:
@@ -312,7 +312,7 @@ async def execute_llm_with_retry(
     kwargs: dict[str, Any],
     agent_key: str,
     thread_key: tuple[str, str],
-    is_superseded_fn=None,
+    is_superseded_fn: Callable[[], bool] | None = None,
     max_attempts: int | None = None,
     allow_503_immediate_retry: bool = True,
     turn_token_mapping: dict[str, str] | None = None,

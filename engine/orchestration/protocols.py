@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, cast, runtime_checkable
 
 from core.registry import get_default_workspace_adapter_factory, get_skill_registry
 
@@ -213,10 +213,13 @@ def create_default_workspace_adapter(
         raise RuntimeError(
             "Default WorkspaceAdapter factory is not configured. Call set_default_workspace_adapter_factory()."
         )
-    return factory(
-        post_agent_fn=post_agent_fn,
-        update_msg_fn=update_msg_fn,
-        post_system_fn=post_system_fn,
+    return cast(
+        WorkspaceAdapter,
+        factory(
+            post_agent_fn=post_agent_fn,
+            update_msg_fn=update_msg_fn,
+            post_system_fn=post_system_fn,
+        ),
     )
 
 
@@ -311,7 +314,10 @@ def resolve_pipeline_deps(
     usage_updater = _get("usage_updater", default_factory=lambda: trigger_usage_update)
     calc_costs_fn = _get("calc_costs_fn", default_factory=lambda: calculate_thread_costs)
     flat_history_recorder = _get("flat_history_recorder", default_factory=lambda: async_record_flat_history)
-    sleep_fn = _get("sleep_fn") or _get("asyncio_sleep") or asyncio.sleep
+    sleep_fn: SleepFunction = cast(
+        SleepFunction,
+        _get("sleep_fn") or _get("asyncio_sleep") or asyncio.sleep,
+    )
     post_system_message_fn = (
         _get("post_system_message_fn")
         or _get("post_system_message")

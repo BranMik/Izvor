@@ -412,4 +412,39 @@ def test_system_settings_snapshot_and_p2_fields_persistence_and_clamping(tmp_pat
     assert fresh_snap.audit_hmac_key_id == "key-2026-q4"
 
 
+def test_system_settings_p3_retention_defaults_persistence_and_clamping(tmp_path):
+    """TKT-1243: centralized retention settings defaults, clamping, and round-trip persistence."""
+    sys_file = tmp_path / "system_settings_p3.json"
+    sys_backup = tmp_path / "system_backup_p3.json"
+    mgr = SystemSettingsManager(settings_file=sys_file, backup_file=sys_backup, auto_load=True)
+
+    assert mgr.get_retention_checkpoints_days() == 7
+    assert mgr.get_retention_traces_days() == 30
+    assert mgr.get_retention_event_dedup_days() == 1
+    assert mgr.get_retention_expired_grace_days() == 7
+    assert mgr.get_retention_thread_sessions_days() == 90
+    assert mgr.get_retention_spend_ledger_days() == 0
+    assert mgr.get_retention_downloads_hours() == 24
+    assert mgr.get_retention_flat_histories_days() == 0
+    assert mgr.get_retention_audit_anchors_compact_enabled() is True
+    assert mgr.get_retention_prune_interval_seconds() == 86400.0
+
+    mgr.set_retention_expired_grace_days(0, save=False)
+    mgr.set_retention_thread_sessions_days(-5, save=False)
+    mgr.set_retention_spend_ledger_days(180, save=False)
+    mgr.set_retention_downloads_hours(12, save=False)
+    mgr.set_retention_flat_histories_days(45, save=False)
+    mgr.set_retention_audit_anchors_compact_enabled(False, save=False)
+    mgr.set_retention_prune_interval_seconds(10.0, save=True)
+
+    mgr2 = SystemSettingsManager(settings_file=sys_file, backup_file=sys_backup, auto_load=True)
+    assert mgr2.get_retention_expired_grace_days() == 1
+    assert mgr2.get_retention_thread_sessions_days() == 0
+    assert mgr2.get_retention_spend_ledger_days() == 180
+    assert mgr2.get_retention_downloads_hours() == 12
+    assert mgr2.get_retention_flat_histories_days() == 45
+    assert mgr2.get_retention_audit_anchors_compact_enabled() is False
+    assert mgr2.get_retention_prune_interval_seconds() == 60.0
+
+
 

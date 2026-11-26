@@ -183,6 +183,13 @@ class SystemSettingsModel(BaseModel):
     retention_checkpoints_days: int = 7
     retention_traces_days: int = 30
     retention_event_dedup_days: int = 1
+    retention_expired_grace_days: int = 7
+    retention_thread_sessions_days: int = 90
+    retention_spend_ledger_days: int = 0
+    retention_downloads_hours: int = 24
+    retention_flat_histories_days: int = 0
+    retention_audit_anchors_compact_enabled: bool = True
+    retention_prune_interval_seconds: float = 86400.0
     mcp_servers: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"extra": "allow"}
@@ -287,6 +294,13 @@ class SystemSettingsManager:
         self.retention_checkpoints_days: int = 7
         self.retention_traces_days: int = 30
         self.retention_event_dedup_days: int = 1
+        self.retention_expired_grace_days: int = 7
+        self.retention_thread_sessions_days: int = 90
+        self.retention_spend_ledger_days: int = 0
+        self.retention_downloads_hours: int = 24
+        self.retention_flat_histories_days: int = 0
+        self.retention_audit_anchors_compact_enabled: bool = True
+        self.retention_prune_interval_seconds: float = 86400.0
         self.mcp_servers: dict[str, dict[str, Any]] = {}
         self._raw_data: dict[str, Any] = {}
 
@@ -484,6 +498,17 @@ class SystemSettingsManager:
         self.retention_checkpoints_days = int(getattr(model, "retention_checkpoints_days", 7))
         self.retention_traces_days = int(getattr(model, "retention_traces_days", 30))
         self.retention_event_dedup_days = int(getattr(model, "retention_event_dedup_days", 1))
+        self.retention_expired_grace_days = int(getattr(model, "retention_expired_grace_days", 7))
+        self.retention_thread_sessions_days = int(getattr(model, "retention_thread_sessions_days", 90))
+        self.retention_spend_ledger_days = int(getattr(model, "retention_spend_ledger_days", 0))
+        self.retention_downloads_hours = int(getattr(model, "retention_downloads_hours", 24))
+        self.retention_flat_histories_days = int(getattr(model, "retention_flat_histories_days", 0))
+        self.retention_audit_anchors_compact_enabled = bool(
+            getattr(model, "retention_audit_anchors_compact_enabled", True)
+        )
+        self.retention_prune_interval_seconds = float(
+            getattr(model, "retention_prune_interval_seconds", 86400.0)
+        )
         raw_mcp = getattr(model, "mcp_servers", {})
         self.mcp_servers = copy.deepcopy(raw_mcp) if isinstance(raw_mcp, dict) else {}
 
@@ -537,6 +562,13 @@ class SystemSettingsManager:
             retention_checkpoints_days=self.retention_checkpoints_days,
             retention_traces_days=self.retention_traces_days,
             retention_event_dedup_days=self.retention_event_dedup_days,
+            retention_expired_grace_days=self.retention_expired_grace_days,
+            retention_thread_sessions_days=self.retention_thread_sessions_days,
+            retention_spend_ledger_days=self.retention_spend_ledger_days,
+            retention_downloads_hours=self.retention_downloads_hours,
+            retention_flat_histories_days=self.retention_flat_histories_days,
+            retention_audit_anchors_compact_enabled=self.retention_audit_anchors_compact_enabled,
+            retention_prune_interval_seconds=self.retention_prune_interval_seconds,
             mcp_servers=copy.deepcopy(self.mcp_servers),
         )
 
@@ -626,6 +658,13 @@ class SystemSettingsManager:
             "retention_checkpoints_days": self.retention_checkpoints_days,
             "retention_traces_days": self.retention_traces_days,
             "retention_event_dedup_days": self.retention_event_dedup_days,
+            "retention_expired_grace_days": self.retention_expired_grace_days,
+            "retention_thread_sessions_days": self.retention_thread_sessions_days,
+            "retention_spend_ledger_days": self.retention_spend_ledger_days,
+            "retention_downloads_hours": self.retention_downloads_hours,
+            "retention_flat_histories_days": self.retention_flat_histories_days,
+            "retention_audit_anchors_compact_enabled": self.retention_audit_anchors_compact_enabled,
+            "retention_prune_interval_seconds": self.retention_prune_interval_seconds,
             "mcp_servers": copy.deepcopy(self.mcp_servers),
         })
 
@@ -1220,6 +1259,69 @@ class SystemSettingsManager:
         if save:
             self.save()
 
+    def get_retention_expired_grace_days(self) -> int:
+        self.load()
+        return int(self.retention_expired_grace_days)
+
+    def set_retention_expired_grace_days(self, days: int, save: bool = True) -> None:
+        self.retention_expired_grace_days = max(1, int(days))
+        if save:
+            self.save()
+
+    def get_retention_thread_sessions_days(self) -> int:
+        self.load()
+        return int(self.retention_thread_sessions_days)
+
+    def set_retention_thread_sessions_days(self, days: int, save: bool = True) -> None:
+        self.retention_thread_sessions_days = max(0, int(days))
+        if save:
+            self.save()
+
+    def get_retention_spend_ledger_days(self) -> int:
+        self.load()
+        return int(self.retention_spend_ledger_days)
+
+    def set_retention_spend_ledger_days(self, days: int, save: bool = True) -> None:
+        self.retention_spend_ledger_days = max(0, int(days))
+        if save:
+            self.save()
+
+    def get_retention_downloads_hours(self) -> int:
+        self.load()
+        return int(self.retention_downloads_hours)
+
+    def set_retention_downloads_hours(self, hours: int, save: bool = True) -> None:
+        self.retention_downloads_hours = max(0, int(hours))
+        if save:
+            self.save()
+
+    def get_retention_flat_histories_days(self) -> int:
+        self.load()
+        return int(self.retention_flat_histories_days)
+
+    def set_retention_flat_histories_days(self, days: int, save: bool = True) -> None:
+        self.retention_flat_histories_days = max(0, int(days))
+        if save:
+            self.save()
+
+    def get_retention_audit_anchors_compact_enabled(self) -> bool:
+        self.load()
+        return bool(self.retention_audit_anchors_compact_enabled)
+
+    def set_retention_audit_anchors_compact_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.retention_audit_anchors_compact_enabled = bool(enabled)
+        if save:
+            self.save()
+
+    def get_retention_prune_interval_seconds(self) -> float:
+        self.load()
+        return float(self.retention_prune_interval_seconds)
+
+    def set_retention_prune_interval_seconds(self, seconds: float, save: bool = True) -> None:
+        self.retention_prune_interval_seconds = max(60.0, float(seconds))
+        if save:
+            self.save()
+
     # --- MCP Servers Settings ---
     def get_mcp_servers(self, env: Mapping[str, str] | None = None) -> dict[str, McpServerConfig]:
         """Returns validated McpServerConfig objects with env vars expanded."""
@@ -1541,6 +1643,34 @@ def get_retention_traces_days() -> int:
 
 def get_retention_event_dedup_days() -> int:
     return system_settings_manager.get_retention_event_dedup_days()
+
+
+def get_retention_expired_grace_days() -> int:
+    return system_settings_manager.get_retention_expired_grace_days()
+
+
+def get_retention_thread_sessions_days() -> int:
+    return system_settings_manager.get_retention_thread_sessions_days()
+
+
+def get_retention_spend_ledger_days() -> int:
+    return system_settings_manager.get_retention_spend_ledger_days()
+
+
+def get_retention_downloads_hours() -> int:
+    return system_settings_manager.get_retention_downloads_hours()
+
+
+def get_retention_flat_histories_days() -> int:
+    return system_settings_manager.get_retention_flat_histories_days()
+
+
+def get_retention_audit_anchors_compact_enabled() -> bool:
+    return system_settings_manager.get_retention_audit_anchors_compact_enabled()
+
+
+def get_retention_prune_interval_seconds() -> float:
+    return system_settings_manager.get_retention_prune_interval_seconds()
 
 
 def get_mcp_servers(env: Mapping[str, str] | None = None) -> dict[str, McpServerConfig]:

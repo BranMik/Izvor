@@ -298,3 +298,153 @@ def test_forget_thread_purges_thread_notes_via_configured_dir(tmp_path):
         assert not note_file.exists()
     finally:
         reset_paths()
+
+
+def test_prune_extended_sessions_spend_archives_and_audit_anchors(tmp_path):
+    """TKT-1243: Tests inactive thread_sessions cascade, opt-in spend/archive pruning, downloads, and safe audit_anchors compaction."""
+    import os
+    from services.audit_logger import audit_logger, log_audit_event, verify_audit_log_integrity
+    from services.flat_history_recorder import configure_paths as cfg_flat, reset_paths as rst_flat
+    from services.slack.files import cleanup_old_downloads
+    from services.thread_notes_writer import configure_paths as cfg_notes, reset_paths as rst_notes
+
+    now = time.time()
+    day = 86400.0
+    current_month = time.strftime("%Y_%m", time.gmtime(now))
+
+    with get_db_transaction(immediate=True) as conn:
+        # 1. Inactive stale session (should cascade) vs active stale session (must stay)
+        conn.execute(
+            """
+            INSERT INTO thread_sessions (channel_id, thread_ts, status, created_at, last_activity) VALUES
+                ('C_STALE', '10.1', 'completed', ?, ?),
+                ('C_ACTIVE', '20.2', 'active', ?, ?);
+            """,
+            (now - 100 * day, now - 95 * day, now - 100 * day, now - 95 * day),
+        )
+        conn.execute(
+            "INSERT INTO thread_context (channel_id, thread_ts, max_words) VALUES ('C_STALE', '10.1', 100), ('C_ACTIVE', '20.2', 100);"
+        )
+        conn.execute(
+            "INSERT INTO thread_usage_meta (channel_id, thread_ts, channel_name, created_at_str, last_updated) VALUES ('C_STALE', '10.1', 'c', 'd', ?), ('C_ACTIVE', '20.2', 'c', 'd', ?);",
+            (now - 95 * day, now - 95 * day),
+        )
+        conn.execute(
+            "INSERT INTO thread_notes_state (channel_id, thread_ts, live_note_content, updated_at) VALUES ('C_STALE', '10.1', 'old', ?), ('C_ACTIVE', '20.2', 'keep', ?);",
+            (now - 95 * day, now - 95 * day),
+        )
+
+        # 2. Spend ledger: 1 old (>200d), 1 recent
+        conn.execute(
+            """
+            INSERT INTO spend_ledger (channel_id, thread_ts, model_name, prompt_tokens, completion_tokens, cost_usd, timestamp) VALUES
+                ('C_SP', '1.1', 'm', 10, 5, 0.01, ?),
+                ('C_SP', '1.2', 'm', 10, 5, 0.02, ?);
+            """,
+            (now - 200 * day, now - 5 * day),
+        )
+
+        # 3. Expired HITL with custom grace days
+        conn.execute(
+            """
+            INSERT INTO hitl_approvals (
+                request_id, channel_id, thread_ts, agent_name, skill_name,
+                fn_name, fn_args, args_hash, status, created_at, expires_at
+            ) VALUES ('req_grace', 'C_G', '1.1', 'A', 's', 'f', '{}', 'h', 'DENIED', ?, ?);
+            """,
+            (now - 10 * day, now - 4 * day),
+        )
+
+    # 4. Audit anchors: create real current-month log + closed on-disk month + orphaned month
+    log_audit_event("TEST_EV", {"type": "test", "id": "1"}, "act", "tgt", severity="CRITICAL")
+    closed_month = "2020_01"
+    orphan_month = "2019_12"
+    closed_file = audit_logger.audit_dir / f"audit_{closed_month}.jsonl"
+    closed_file.write_text("", encoding="utf-8")
+
+    with get_db_transaction(immediate=True) as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO audit_anchors (month, seq, entry_hash, anchored_at) VALUES
+                (?, 10, 'h10', '2020-01-01'),
+                (?, 20, 'h20', '2020-01-15'),
+                (?, 5, 'ho5', '2019-12-01'),
+                (?, 999, 'hcur', '2026-01-01');
+            """,
+            (closed_month, closed_month, orphan_month, current_month),
+        )
+
+    # 5. Filesystem archives & downloads
+    flat_dir = tmp_path / "flat"
+    notes_dir = tmp_path / "notes_arch"
+    dl_dir = tmp_path / "downloads"
+    flat_dir.mkdir()
+    notes_dir.mkdir()
+    dl_dir.mkdir()
+
+    old_flat = flat_dir / "old_hist.md"
+    old_flat.write_text("old", encoding="utf-8")
+    os.utime(old_flat, (now - 100 * day, now - 100 * day))
+
+    old_note = notes_dir / "old_note.md"
+    old_note.write_text("old", encoding="utf-8")
+    os.utime(old_note, (now - 100 * day, now - 100 * day))
+
+    old_dl = dl_dir / "C1_1" / "file.txt"
+    old_dl.parent.mkdir(parents=True)
+    old_dl.write_text("dl", encoding="utf-8")
+    os.utime(old_dl, (now - 48 * 3600.0, now - 48 * 3600.0))
+
+    cfg_flat(flat_dir)
+    cfg_notes(notes_dir)
+    try:
+        # First pass: opt-in defaults (0) preserve spend_ledger and flat/notes archives
+        res_opt_in = prune_expired_records(
+            retention_expired_grace_days=3,
+            retention_thread_sessions_days=90,
+            retention_spend_ledger_days=0,
+            retention_downloads_hours=24,
+            retention_flat_histories_days=0,
+            compact_audit_anchors=True,
+        )
+        assert res_opt_in["thread_sessions"] == 1
+        assert res_opt_in["hitl_approvals"] == 1
+        assert res_opt_in["spend_ledger"] == 0
+        assert res_opt_in["flat_histories"] == 0
+        assert res_opt_in["thread_notes"] == 0
+        assert res_opt_in["audit_anchors"] == 2  # closed seq=10 + orphan seq=5 removed; closed seq=20 + current kept
+        assert old_flat.exists() and old_note.exists()
+
+        # Verify cleanup_old_downloads honors injected dir and TTL
+        assert cleanup_old_downloads(max_age_seconds=24 * 3600.0, downloads_dir=dl_dir) == 1
+        assert not old_dl.exists()
+
+        # Verify closed month retains MAX(seq)=20 and current month retains both anchors
+        with get_connection() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM thread_sessions").fetchone()[0] == 1
+            assert conn.execute("SELECT COUNT(*) FROM thread_context WHERE channel_id = 'C_STALE'").fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM thread_usage_meta WHERE channel_id = 'C_STALE'").fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM thread_notes_state WHERE channel_id = 'C_STALE'").fetchone()[0] == 0
+            closed_seqs = [r[0] for r in conn.execute("SELECT seq FROM audit_anchors WHERE month = ?", (closed_month,)).fetchall()]
+            assert closed_seqs == [20]
+            assert conn.execute("SELECT COUNT(*) FROM audit_anchors WHERE month = ?", (orphan_month,)).fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM audit_anchors WHERE month = ?", (current_month,)).fetchone()[0] >= 1
+
+        # Remove synthetic empty closed file and dummy current seq=999 anchor, then verify real audit integrity still passes
+        closed_file.unlink(missing_ok=True)
+        with get_db_transaction(immediate=True) as conn:
+            conn.execute("DELETE FROM audit_anchors WHERE month = ? OR (month = ? AND seq = 999);", (closed_month, current_month))
+        assert verify_audit_log_integrity().valid is True
+
+        # Second pass: explicit positive spend/archive retention windows prune old items
+        res_enabled = prune_expired_records(
+            retention_spend_ledger_days=180,
+            retention_flat_histories_days=90,
+        )
+        assert res_enabled["spend_ledger"] == 1
+        assert res_enabled["flat_histories"] == 1
+        assert res_enabled["thread_notes"] == 1
+        assert not old_flat.exists() and not old_note.exists()
+    finally:
+        rst_flat()
+        rst_notes()

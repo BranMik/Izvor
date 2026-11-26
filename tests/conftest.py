@@ -202,6 +202,8 @@ def isolate_app_settings_for_tests(tmp_path):
     orig_scribe_enabled = app_settings_manager.scribe_enabled
     orig_weekly_pricing = app_settings_manager.weekly_pricing_update_enabled
     orig_workspace_context = app_settings_manager.workspace_context
+    orig_convergence_ff = app_settings_manager.convergence_fast_forward_enabled
+    orig_filter_unauth = app_settings_manager.filter_unauthorized_skill_agents_enabled
 
     app_settings_manager.configure_paths(
         settings_file=temp_app_settings,
@@ -218,6 +220,8 @@ def isolate_app_settings_for_tests(tmp_path):
     app_settings_manager.scribe_enabled = orig_scribe_enabled
     app_settings_manager.weekly_pricing_update_enabled = orig_weekly_pricing
     app_settings_manager.workspace_context = orig_workspace_context
+    app_settings_manager.convergence_fast_forward_enabled = orig_convergence_ff
+    app_settings_manager.filter_unauthorized_skill_agents_enabled = orig_filter_unauth
     app_settings_manager.reset_paths()
 
 
@@ -231,22 +235,43 @@ class _UnmockedSlackClientGuard:
         )
 
 
+@pytest.fixture(scope="session")
+def _session_template_db(tmp_path_factory):
+    """
+    Creates ONE pre-migrated SQLite WAL template database once per pytest worker session
+    so individual tests copy a ready-to-use schema instead of executing all DDL migrations.
+    """
+    from core.database import db_manager
+
+    template_dir = tmp_path_factory.mktemp("db_template")
+    template_path = template_dir / "template_izvor.db"
+    db_manager.configure_paths(db_path=template_path)
+    with db_manager.get_connection() as conn:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+    db_manager.close_all_connections()
+
+    yield template_path
+
+    db_manager.reset_paths()
+
+
 @pytest.fixture(autouse=True)
-def isolate_database_for_tests(tmp_path):
+def isolate_database_for_tests(tmp_path, _session_template_db):
     """
     Bulletproof SQLite database isolation for tests.
-    Each test gets a dedicated temporary SQLite database initialized with all schemas and WAL pragmas.
+    Each test gets a dedicated temporary SQLite database copied from the session template.
     """
     from core.database import db_manager
 
     iso_dir = tmp_path / "_conftest_iso"
     iso_dir.mkdir(parents=True, exist_ok=True)
     test_db_path = iso_dir / "test_izvor.db"
+    shutil.copy2(_session_template_db, test_db_path)
     db_manager.configure_paths(db_path=test_db_path)
 
     yield test_db_path
 
-    db_manager.reset_paths()
+    db_manager.close_all_connections()
 
 
 @pytest.fixture(autouse=True)
@@ -565,12 +590,20 @@ def reset_router_and_llm_di_for_tests():
     from nlp.intent_extractor import reset_intent_extractor
     from services.rag.embeddings import EmbeddingService
     from services.rate_limiter import ip_rate_limiter
+    from core.slack_security import reset_auth_failure_tracker
+    from adapters.slack.events import reset_skills_slash_cache
+    from services.readiness import reset_readiness_state
+    from services.telemetry import reset_telemetry_state
 
     # Hard-isolate Slack credentials, async client, caches, and report timezone for every test
     configure_token("")
     configure_slack_async_client(_UnmockedSlackClientGuard())
     reset_slack_caches()
     reset_report_timezone()
+    reset_auth_failure_tracker()
+    reset_skills_slash_cache()
+    reset_readiness_state()
+    reset_telemetry_state()
 
     yield
 
@@ -580,6 +613,10 @@ def reset_router_and_llm_di_for_tests():
     reset_token()
     reset_slack_async_client()
     reset_slack_caches()
+    reset_auth_failure_tracker()
+    reset_skills_slash_cache()
+    reset_readiness_state()
+    reset_telemetry_state()
     reset_llm_completion_fn()
     reset_llm_sleep_fn()
     reset_env_provider()
