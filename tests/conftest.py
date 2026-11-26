@@ -598,7 +598,7 @@ def isolate_workspace_tests_for_tests():
 def make_mock_acompletion(agent_turn_handler=None, default_content="Response text"):
     """
     Creates an AsyncMock for litellm.acompletion that automatically handles
-    system agent calls (Language Detector, Intent Extractor, Internal Revisor)
+    system agent calls (Language Detector, Intent Extractor, Internal Revisor, Discussion Scribe)
     while routing debate agent calls to `agent_turn_handler` or returning a standard mock choice.
     """
     async def _mock_acompletion(*args, **kwargs):
@@ -627,6 +627,17 @@ def make_mock_acompletion(agent_turn_handler=None, default_content="Response tex
         if "internalrevisor" in sys_content.lower() or "revisor" in sys_content.lower():
             m = MagicMock()
             m.message.content = "VERDICT: APPROVED"
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
+        if (
+            "discussion_scribe_live" in sys_content.lower()
+            or "discussion_scribe_conclusion" in sys_content.lower()
+            or "strategic synthesis scribe" in sys_content.lower()
+            or "dialectical conclusion synthesizer" in sys_content.lower()
+        ):
+            m = MagicMock()
+            m.message.content = "*Core Objective & Problem Statement*\nMock synthesis."
             m.message.tool_calls = None
             return MagicMock(choices=[m], usage=None)
 

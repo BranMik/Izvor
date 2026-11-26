@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from agents.thread_notes_agent import configure_trigger_thread_notes_update
 from conftest import async_noop_sleep
 from core.llm_utils import (
     classify_agent_error,
@@ -36,6 +37,7 @@ def setup_test_environment():
     thread_state_manager.reset_all()
     configure_router_sleep_fn(async_noop_sleep)
     configure_llm_sleep_fn(async_noop_sleep)
+    configure_trigger_thread_notes_update(MagicMock())
 
 
 def test_classify_agent_error():

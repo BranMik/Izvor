@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from agents.thread_notes_agent import configure_trigger_thread_notes_update
 from conftest import async_noop_sleep, make_mock_acompletion
 from core.llm_utils import configure_llm_completion_fn
 from orchestration.agent_router import (
@@ -40,6 +41,7 @@ def setup_test_environment():
     set_fixed_config([])
     thread_state_manager.reset_all()
     configure_router_sleep_fn(async_noop_sleep)
+    configure_trigger_thread_notes_update(MagicMock())
 
 
 @pytest.mark.anyio

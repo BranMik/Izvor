@@ -76,3 +76,46 @@ def test_guard_blocks_unmocked_llm_calls(guard_unmocked_llm_calls_for_tests) -> 
     guard_unmocked_llm_calls_for_tests.clear()
 
 
+def test_make_mock_acompletion_intercepts_discussion_scribe() -> None:
+    """Confirms make_mock_acompletion intercepts Discussion Scribe without calling agent_turn_handler."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from conftest import make_mock_acompletion
+    from prompts.builder import load_system_prompt
+
+    handler = MagicMock(
+        return_value=MagicMock(
+            choices=[MagicMock(message=MagicMock(content="Persona reply", tool_calls=None))],
+            usage=None,
+        )
+    )
+    mock_fn = make_mock_acompletion(handler)
+
+    async def _run() -> None:
+        live_prompt = load_system_prompt("Discussion_Scribe_Live")
+        conc_prompt = load_system_prompt("Discussion_Scribe_Conclusion")
+
+        live_resp = await mock_fn(
+            messages=[{"role": "system", "content": live_prompt}, {"role": "user", "content": "synth"}]
+        )
+        conc_resp = await mock_fn(
+            messages=[{"role": "system", "content": conc_prompt}, {"role": "user", "content": "conclude"}]
+        )
+        assert "Mock synthesis" in live_resp.choices[0].message.content
+        assert "Mock synthesis" in conc_resp.choices[0].message.content
+        handler.assert_not_called()
+
+        persona_resp = await mock_fn(
+            messages=[
+                {"role": "system", "content": '<agent_specification id="agent-10001">...</agent_specification>'},
+                {"role": "user", "content": "hello"},
+            ]
+        )
+        assert persona_resp.choices[0].message.content == "Persona reply"
+        handler.assert_called_once()
+
+    asyncio.run(_run())
+
+
+

@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from agents.thread_notes_agent import configure_trigger_thread_notes_update
 from conftest import make_mock_acompletion
 
 from core.llm_utils import configure_llm_completion_fn
@@ -45,6 +46,7 @@ def setup_test_environment():
     configure_fetch_thread_history(mock_hist)
     configure_fetch_thread_files(mock_files)
     configure_router_sleep_fn(AsyncMock(return_value=None))
+    configure_trigger_thread_notes_update(MagicMock())
 
     yield
 

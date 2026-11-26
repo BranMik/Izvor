@@ -5,7 +5,7 @@ import pytest
 from conftest import async_noop_sleep, make_mock_acompletion
 from core.config import AGENTS_CONFIG
 from core.llm_utils import configure_llm_completion_fn
-from agents import configure_record_thread_tokens
+from agents import configure_record_thread_tokens, configure_trigger_thread_notes_update
 from nlp.message_builder import build_llm_messages
 from orchestration.agent_router import (
     configure_router_sleep_fn,
@@ -31,6 +31,7 @@ def setup_test_chains():
     set_fixed_config([])
     thread_state_manager.reset_all()
     configure_router_sleep_fn(async_noop_sleep)
+    configure_trigger_thread_notes_update(MagicMock())
     yield
     reset_enabled_agents()
     set_orchestration_mode("sandwich")

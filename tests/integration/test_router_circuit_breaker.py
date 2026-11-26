@@ -38,6 +38,7 @@ def setup_test_environment():
     set_fixed_config([])
     thread_state_manager.reset_all()
     configure_router_sleep_fn(async_noop_sleep)
+    configure_trigger_thread_notes_update(MagicMock())
 
 
 def test_circuit_breaker_configuration_methods():

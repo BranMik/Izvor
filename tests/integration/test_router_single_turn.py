@@ -37,6 +37,7 @@ def setup_test_environment():
     set_fixed_config([])
     thread_state_manager.reset_all()
     configure_router_sleep_fn(async_noop_sleep)
+    configure_trigger_thread_notes_update(MagicMock())
 
 
 def test_parse_explicit_bracket_tags():
@@ -431,7 +432,6 @@ async def test_process_and_respond_history_zero():
             captured_messages.extend(msgs)
         return mock_resp
 
-    configure_trigger_thread_notes_update(MagicMock())
     configure_llm_completion_fn(make_mock_acompletion(handle_turn))
     configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": "12345.5002"}))
 
@@ -444,9 +444,6 @@ async def test_process_and_respond_history_zero():
 
     # Only system prompt + user prompt (0 prior messages)
     assert len(captured_messages) == 2
-    assert captured_messages[0]["role"] == "system"
-    assert captured_messages[1]["role"] == "user"
-    assert "Fresh start" in captured_messages[1]["content"]
     assert captured_messages[0]["role"] == "system"
     assert captured_messages[1]["role"] == "user"
     assert "Fresh start" in captured_messages[1]["content"]
