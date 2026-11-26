@@ -360,7 +360,11 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     """Verifies that TurnPipeline populates ctx.icon_url from agent_cfg and passes it to Slack post."""
     from unittest.mock import AsyncMock
 
+    from conftest import make_mock_acompletion
+    from core.llm_utils import configure_llm_completion_fn
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
+
+    configure_llm_completion_fn(make_mock_acompletion())
 
     mock_post = AsyncMock(return_value={"ok": True, "ts": "12345.9999"})
     pipeline = TurnPipeline(

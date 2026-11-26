@@ -8,10 +8,7 @@ import logging
 import re
 from typing import Any
 
-import lancedb
-
 from services.rag.config import GUARDRAIL_THRESHOLD, LANCEDB_DIR
-from services.rag.embeddings import embedding_service
 
 logger = logging.getLogger(__name__)
 
@@ -238,7 +235,7 @@ class GuardrailService:
         self.threshold = threshold
         self.table_name = "guardrail_signatures"
         self._table = table
-        self._connect_fn = connect_fn or lancedb.connect
+        self._connect_fn = connect_fn
         self._table_missing = False
         self._missing_checks = 0
 
@@ -290,7 +287,12 @@ class GuardrailService:
             return None
         self._missing_checks = 0
         try:
-            db = self._connect_fn(str(self.db_dir))
+            connect_fn = self._connect_fn
+            if connect_fn is None:
+                import lancedb
+
+                connect_fn = lancedb.connect
+            db = connect_fn(str(self.db_dir))
             tables = self._list_table_names(db)
             if self.table_name in tables:
                 self._table = db.open_table(self.table_name)
@@ -327,6 +329,8 @@ class GuardrailService:
                 uncached.append(chunk)
 
         if uncached:
+            from services.rag.embeddings import embedding_service
+
             vectors = await embedding_service.get_embeddings(uncached)
             if vectors and len(vectors) == len(uncached):
                 max_size = _get_max_embedding_cache_size()

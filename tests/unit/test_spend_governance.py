@@ -69,9 +69,8 @@ async def test_embeddings_records_usage_to_spend_governance():
     mock_resp.data = [{"embedding": [0.1, 0.2]}]
     mock_resp.usage = MagicMock(prompt_tokens=55)
 
-    with patch("services.rag.embeddings.litellm.aembedding", AsyncMock(return_value=mock_resp)):
-        svc = EmbeddingService()
-        await svc._embed_batch(["text1", "text2"])
+    svc = EmbeddingService(embed_func=AsyncMock(return_value=mock_resp))
+    await svc._embed_batch(["text1", "text2"])
 
     with get_connection() as conn:
         row = conn.execute(

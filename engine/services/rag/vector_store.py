@@ -5,24 +5,31 @@ import time
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa
-
 from .config import DEFAULT_TOP_K, EMBEDDING_DIM, LANCEDB_DIR, TABLE_NAME
 from .document_parser import DocumentChunk
 
 logger = logging.getLogger(__name__)
 
-# Schema defining the LanceDB agent_knowledge table
-RAG_SCHEMA = pa.schema([
-    pa.field("chunk_id", pa.string()),
-    pa.field("agent_id", pa.string()),          # e.g. "agent-10011", "Security Architect", "shared"
-    pa.field("doc_id", pa.string()),            # e.g. "LegalAdvisor/runbook.md"
-    pa.field("filename", pa.string()),          # e.g. "runbook.md"
-    pa.field("section_header", pa.string()),    # e.g. "## Rollback Procedures"
-    pa.field("text", pa.string()),              # Raw chunk text
-    pa.field("vector", pa.list_(pa.float32(), EMBEDDING_DIM)),  # Embedding vector
-    pa.field("updated_at", pa.float64()),
-])
+_RAG_SCHEMA: Any = None
+
+
+def _get_rag_schema() -> Any:
+    """Lazily constructs and caches the PyArrow schema for the LanceDB agent_knowledge table."""
+    global _RAG_SCHEMA
+    if _RAG_SCHEMA is None:
+        import pyarrow as pa
+
+        _RAG_SCHEMA = pa.schema([
+            pa.field("chunk_id", pa.string()),
+            pa.field("agent_id", pa.string()),          # e.g. "agent-10011", "Security Architect", "shared"
+            pa.field("doc_id", pa.string()),            # e.g. "LegalAdvisor/runbook.md"
+            pa.field("filename", pa.string()),          # e.g. "runbook.md"
+            pa.field("section_header", pa.string()),    # e.g. "## Rollback Procedures"
+            pa.field("text", pa.string()),              # Raw chunk text
+            pa.field("vector", pa.list_(pa.float32(), EMBEDDING_DIM)),  # Embedding vector
+            pa.field("updated_at", pa.float64()),
+        ])
+    return _RAG_SCHEMA
 
 _SAFE_ID_RE = re.compile(r"^[\w.:/ '\-(),+&@]{1,256}$", re.UNICODE)
 
@@ -77,7 +84,7 @@ class VectorStore:
             try:
                 self._table = db.open_table(TABLE_NAME)
             except Exception:  # noqa: BLE001
-                self._table = db.create_table(TABLE_NAME, schema=RAG_SCHEMA)
+                self._table = db.create_table(TABLE_NAME, schema=_get_rag_schema())
                 self._ensure_fts_index(self._table)
 
             return self._table

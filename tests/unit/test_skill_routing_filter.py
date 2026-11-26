@@ -51,6 +51,7 @@ async def test_pure_skill_task_filters_unauthorized_agents_when_enabled():
     directives = ParsedDirectives(
         cleaned_prompt="Analiziraj privitak spec.pdf",
         actions=[ActionDirective(name="document_reader", params={"target_file": "spec.pdf"})],
+        detected_language="English",
         is_pure_skill_task=True,
     )
 
@@ -104,6 +105,7 @@ async def test_zero_authorized_agents_halts_cleanly_with_notice_and_hint():
     directives = ParsedDirectives(
         cleaned_prompt="Analiziraj privitak spec.pdf",
         actions=[ActionDirective(name="document_reader", params={"target_file": "spec.pdf"})],
+        detected_language="English",
         is_pure_skill_task=True,
     )
 
@@ -157,6 +159,7 @@ async def test_toggle_off_prioritizes_authorized_agent_first_and_keeps_unauthori
     directives = ParsedDirectives(
         cleaned_prompt="Analiziraj privitak spec.pdf",
         actions=[ActionDirective(name="document_reader", params={"target_file": "spec.pdf"})],
+        detected_language="English",
         is_pure_skill_task=True,
     )
 

@@ -222,6 +222,10 @@ def test_revoke_instruction():
 
 @pytest.mark.anyio
 async def test_directive_parser_dynamic_skills_sourcing():
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     parser = DirectiveParser()
     raw = "/max_words 40 /history 5 /exclude [agent-10011] What is our roadmap?"
     directives = await parser.parse(raw)
@@ -261,6 +265,10 @@ def test_strip_all_slash_commands():
 @pytest.mark.anyio
 async def test_directive_numeric_clamps():
     """Verifies that numeric bounds (rounds <= 5, max_words <= 2000, history <= 50) are strictly enforced."""
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     parser = DirectiveParser()
     raw = "/rounds 100 /max_words 99999 /history 99 Check bounds"
     directives = await parser.parse(raw)
@@ -285,6 +293,10 @@ def test_slash_command_preserves_prompt_indentation():
 @pytest.mark.anyio
 async def test_documented_shorthand_slash_commands_parse_correctly():
     """Verifies that all documented shorthand slash aliases parse identically to full names."""
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     parser = DirectiveParser()
 
     # /max 120
@@ -322,6 +334,10 @@ async def test_documented_shorthand_slash_commands_parse_correctly():
 @pytest.mark.anyio
 async def test_first_and_open_debate_directive_parsing():
     """Verifies that /first and /open_debate skills parse agent tokens and clean prompt correctly."""
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     parser = DirectiveParser()
 
     # /first [agent-10001]
@@ -404,6 +420,10 @@ async def test_standalone_admin_or_exclusive_commands_skip_intent_extractor():
 @pytest.mark.anyio
 async def test_slash_revoke_word_boundary_ignores_revoked():
     """TKT-1219: /revoked must not match /revoke due to full identifier boundary."""
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     parser = DirectiveParser()
     res_ignored = await parser.parse("/revoked access yesterday")
     assert res_ignored.revoke_target is None

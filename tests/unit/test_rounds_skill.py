@@ -49,6 +49,10 @@ def test_rounds_skill_discovered_in_registry():
 @pytest.mark.anyio
 async def test_directive_parser_parses_rounds_int():
     """Verify directive_parser extracts /rounds [x] properly."""
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     res = await directive_parser.parse("Compare microservices vs monolith /rounds 3")
     act = next((a for a in res.actions if a.name == "rounds"), None)
     assert act is not None
@@ -71,6 +75,10 @@ async def test_directive_parser_parses_rounds_int():
 @pytest.mark.anyio
 async def test_directive_parser_parses_next_round():
     """Verify directive_parser extracts /next_round defaulting to 1 round."""
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     res = await directive_parser.parse("/next_round Let's evaluate costs")
     act = next((a for a in res.actions if a.name == "rounds"), None)
     assert act is not None

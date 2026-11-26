@@ -6,8 +6,18 @@ import pytest
 from services.thread_skills_store import thread_skills_manager
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from pipeline.directive_parser import directive_parser
+from core.llm_utils import configure_llm_completion_fn
 from core.registry import get_skill_registry
+from conftest import make_mock_acompletion, noop_intent_extractor
+from nlp.intent_extractor import configure_intent_extractor
+
 skill_registry = get_skill_registry()
+
+
+@pytest.fixture(autouse=True)
+def stub_intent_extractor_for_grant_tests():
+    configure_intent_extractor(noop_intent_extractor)
+    configure_llm_completion_fn(make_mock_acompletion())
 
 
 # ---------------------------------------------------------------------------

@@ -413,21 +413,35 @@ def _is_at_sentence_or_clause_start(text: str, span_start: int) -> bool:
     return last_char in {".", "!", "?", "\n", "\r", ":", ";", "-", "—", "(", "[", '"', "'", "`", "*"}
 
 
+_PRESIDIO_CACHE_LOCK = threading.Lock()
+_PRESIDIO_ANALYZER_CACHE: dict[tuple[str, ...], tuple[Any, list[str]]] = {}
+
+
 class PIIMasker:
     """
     Sanitizes documents and search results to prevent PII and secrets
     from reaching LLMs or vector indices. Supports two-way tokenization.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, enable_ner: bool = True) -> None:
         self._presidio_analyzer: Any = None
         self._presidio_initialized = False
+        self._ner_enabled: bool = bool(enable_ner)
         self._init_lock = threading.Lock()
         self._custom_exclusions_file: Path | None = None
         self._exclusions_data: dict[str, Any] = {}
         self._global_allowlist: frozenset[str] = _STATIC_GLOBAL_ALLOWLIST_LOWER
         self._sentence_start_allowlist: frozenset[str] = _STATIC_SENTENCE_START_ALLOWLIST_LOWER
         self.refresh_allowlist()
+
+    @property
+    def ner_enabled(self) -> bool:
+        """Whether Presidio/spaCy NER masking is active alongside deterministic regex scrubbing."""
+        return self._ner_enabled
+
+    def configure_ner_enabled(self, enabled: bool) -> None:
+        """Enables or disables Presidio/spaCy NER initialization and analysis."""
+        self._ner_enabled = bool(enabled)
 
     @property
     def active_exclusions_file(self) -> Path:
@@ -613,7 +627,7 @@ class PIIMasker:
             self._supported_languages = ["en"]
 
     def _init_presidio_if_available(self) -> None:
-        if self._presidio_initialized:
+        if not self._ner_enabled or self._presidio_initialized:
             return
         with self._init_lock:
             if self._presidio_initialized:
@@ -626,6 +640,14 @@ class PIIMasker:
                 from config_store.system_settings import get_pii_ner_models
 
                 configured_models = get_pii_ner_models() or ["en_core_web_sm"]
+                cache_key = tuple(str(m).strip() for m in configured_models if str(m).strip())
+                with _PRESIDIO_CACHE_LOCK:
+                    cached = _PRESIDIO_ANALYZER_CACHE.get(cache_key)
+                if cached is not None:
+                    self._presidio_analyzer, cached_langs = cached
+                    self._supported_languages = list(cached_langs)
+                    return
+
                 models_cfg: list[dict[str, str]] = []
                 supported_languages: list[str] = []
                 for model_name in configured_models:
@@ -684,6 +706,8 @@ class PIIMasker:
                     nlp_engine=nlp_engine,
                     supported_languages=supported_languages,
                 )
+                with _PRESIDIO_CACHE_LOCK:
+                    _PRESIDIO_ANALYZER_CACHE[cache_key] = (self._presidio_analyzer, list(supported_languages))
                 logger.info(
                     "[PII Masker] Microsoft Presidio initialized with models=%s.",
                     [m["model_name"] for m in models_cfg],
@@ -786,8 +810,9 @@ class PIIMasker:
             masked_text = pattern.sub(get_replacer(replacement), masked_text)
 
         # 3. Presidio enhancement (for NER: PERSON, LOCATION, ORGANIZATION)
-        self._init_presidio_if_available()
-        if self._presidio_analyzer:
+        if self._ner_enabled:
+            self._init_presidio_if_available()
+        if self._ner_enabled and self._presidio_analyzer:
             try:
                 supported_langs = getattr(self, "_supported_languages", None) or ["en"]
                 results = []

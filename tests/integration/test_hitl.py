@@ -114,9 +114,12 @@ def test_hitl_expiration_ttl():
 
 def test_hitl_slack_interactivity_authorization():
     """Test Slack Block Kit approval/denial authorization: only initiator or admin can approve/deny."""
+    from conftest import make_mock_acompletion
     from core.config import configure_token, reset_token, set_admin_slack_user_ids_override
+    from core.llm_utils import configure_llm_completion_fn
     from services.slack import configure_slack_async_client, reset_slack_async_client
 
+    configure_llm_completion_fn(make_mock_acompletion())
     set_admin_slack_user_ids_override("U_WORKSPACE_ADMIN")
     mock_client = AsyncMock()
     mock_client.chat_postEphemeral = AsyncMock(return_value={"ok": True})

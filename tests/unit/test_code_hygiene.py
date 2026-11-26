@@ -1,8 +1,23 @@
 import ast
+import functools
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+
+@functools.lru_cache(maxsize=1)
+def _get_test_py_files() -> tuple[Path, ...]:
+    tests_dir = Path(__file__).resolve().parents[2] / "tests"
+    return tuple(tests_dir.rglob("*.py"))
+
+
+@functools.lru_cache(maxsize=None)
+def _parse_ast_cached(py_file: Path) -> ast.Module | None:
+    try:
+        return ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+    except (SyntaxError, UnicodeDecodeError):
+        return None
 
 
 def test_python_ast_compilation_and_hygiene():
@@ -168,7 +183,6 @@ def test_no_monkeypatch_setattr_on_module_paths_or_managers():
     import ast
 
     root_dir = Path(__file__).resolve().parents[2]
-    tests_dir = root_dir / "tests"
 
     forbidden_targets = {
         "DOWNLOADS_DIR",
@@ -210,10 +224,9 @@ def test_no_monkeypatch_setattr_on_module_paths_or_managers():
 
     violations = []
 
-    for py_file in tests_dir.rglob("*.py"):
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        except SyntaxError:
+    for py_file in _get_test_py_files():
+        tree = _parse_ast_cached(py_file)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -258,14 +271,12 @@ def test_no_monkeypatch_setenv_or_delenv():
     import ast
 
     root_dir = Path(__file__).resolve().parents[2]
-    tests_dir = root_dir / "tests"
 
     violations = []
 
-    for py_file in tests_dir.rglob("*.py"):
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        except SyntaxError:
+    for py_file in _get_test_py_files():
+        tree = _parse_ast_cached(py_file)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -293,17 +304,15 @@ def test_zero_monkeypatch_usage_in_test_suite():
     import ast
 
     root_dir = Path(__file__).resolve().parents[2]
-    tests_dir = root_dir / "tests"
 
     violations = []
 
-    for py_file in tests_dir.rglob("*.py"):
+    for py_file in _get_test_py_files():
         if py_file.name == "test_code_hygiene.py":
             continue
 
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        except SyntaxError:
+        tree = _parse_ast_cached(py_file)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -365,14 +374,12 @@ def test_consistent_fastapi_testclient_imports():
     preventing inconsistent starlette.testclient imports.
     """
     root_dir = Path(__file__).resolve().parents[2]
-    tests_dir = root_dir / "tests"
 
     starlette_testclient_usages: list[str] = []
 
-    for py_file in tests_dir.rglob("*.py"):
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        except SyntaxError:
+    for py_file in _get_test_py_files():
+        tree = _parse_ast_cached(py_file)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -398,17 +405,15 @@ def test_zero_patch_object_and_patch_dict_in_test_suite():
     or config override APIs instead.
     """
     root_dir = Path(__file__).resolve().parents[2]
-    tests_dir = root_dir / "tests"
 
     violations: list[str] = []
 
-    for py_file in tests_dir.rglob("*.py"):
+    for py_file in _get_test_py_files():
         if py_file.name == "test_code_hygiene.py":
             continue
 
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        except SyntaxError:
+        tree = _parse_ast_cached(py_file)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -443,7 +448,6 @@ def test_no_patch_on_module_paths_or_managers():
     configure_* overrides, or pure dependency injection instead.
     """
     root_dir = Path(__file__).resolve().parents[2]
-    tests_dir = root_dir / "tests"
 
     forbidden_targets = {
         "DOWNLOADS_DIR",
@@ -482,13 +486,12 @@ def test_no_patch_on_module_paths_or_managers():
 
     violations: list[str] = []
 
-    for py_file in tests_dir.rglob("*.py"):
+    for py_file in _get_test_py_files():
         if py_file.name == "test_code_hygiene.py":
             continue
 
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        except SyntaxError:
+        tree = _parse_ast_cached(py_file)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -564,7 +567,9 @@ def test_no_eager_string_union_annotations_without_future():
             continue
         files = [target_path] if target_path.is_file() else list(target_path.rglob("*.py"))
         for py_file in files:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            tree = _parse_ast_cached(py_file)
+            if tree is None:
+                continue
             if _has_future_annotations(tree):
                 continue
             for ann in _collect_annotation_nodes(tree):

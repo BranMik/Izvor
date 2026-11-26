@@ -97,6 +97,10 @@ def test_thread_skills_manager_ttl_expiration():
 
 @pytest.mark.anyio
 async def test_directive_parser_grant_and_revoke_for_all():
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     raw_grant = "/grant_skill_for_all web_research document_reader [agent-10008] inspect repo"
     parsed_grant = await directive_parser.parse(raw_grant)
 

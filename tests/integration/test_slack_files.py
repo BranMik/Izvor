@@ -14,6 +14,10 @@ from services.slack import download_slack_file, sanitize_slack_download_filename
 
 @pytest.mark.anyio
 async def test_extract_file_instruction_slash_commands():
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     # Basic slash command
     res = await directive_parser.parse("/read-file Analiziraj ovo")
     assert res.is_file_req is True
@@ -35,6 +39,10 @@ async def test_extract_file_instruction_slash_commands():
 
 @pytest.mark.anyio
 async def test_extract_file_instruction_matching_uploaded_filename():
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     available_files = [
         {"name": "sales_report_2026.csv", "id": "F1"},
         {"name": "architecture_diagram.png", "id": "F2"},
@@ -48,6 +56,10 @@ async def test_extract_file_instruction_matching_uploaded_filename():
 
 @pytest.mark.anyio
 async def test_extract_file_instruction_negative_cases():
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     cases = [
         "Bok, kako si danas?",
         "Tko je predsjednik Hrvatske?",

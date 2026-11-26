@@ -7,8 +7,8 @@ This document details the test suites, testing practices, and quality assurance 
 ## 🧪 Test Suite Overview
 
 Izvor organizes its tests into a clean, 3-tier hierarchy:
-1. **Unit Tests** ([`tests/unit/`](file:///tests/unit)): **66** fast, isolated component test files verifying models, parsers, policies, security sanitizers, pricing logic, and architectural rules.
-2. **Integration Tests** ([`tests/integration/`](file:///tests/integration)): **37** multi-component test files verifying SQLite engines, Turn Pipeline lifecycle, Slack interactivity endpoints, RAG Vector DB, HITL checkpoints, and multi-agent loops (combined default suite: **103 files, 1,025 passing tests**).
+1. **Unit Tests** ([`tests/unit/`](file:///tests/unit)): **71** fast, isolated component test files verifying models, parsers, policies, security sanitizers, pricing logic, and architectural rules.
+2. **Integration Tests** ([`tests/integration/`](file:///tests/integration)): **38** multi-component test files verifying SQLite engines, Turn Pipeline lifecycle, Slack interactivity endpoints, RAG Vector DB, HITL checkpoints, and multi-agent loops (combined default suite: **109 files, 1,092 passing tests**).
 3. **E2E Behavioral Simulation Harness** ([`tests/e2e/`](file:///tests/e2e)): 28 comprehensive Slack event, WebClient interception, and dialectical scenario simulations (**8** harness modules, executed explicitly via `test_e2e_suite.py` or `tests.e2e.runner`).
 
 ```
@@ -26,7 +26,7 @@ tests/
 │   ├── test_intent_extractor.py               # Unified pre-flight NLP directive & language detection
 │   ├── test_pricing_service.py                # Token cost lookup, price bounds & fail-expensive fallback
 │   ├── test_rate_limiter.py                   # Token bucket / rate limiter tests
-│   └── ...                                    # (66 unit test files total)
+│   └── ...                                    # (71 unit test files total)
 ├── integration/                               # Tier 2: Multi-component & lifecycle integration tests
 │   ├── test_db_migrations.py                  # SQLite PRAGMA user_version numbered MIGRATIONS tests
 │   ├── test_discussion_loop.py                # DiscussionLoop multi-turn routing & continuation tests
@@ -45,7 +45,7 @@ tests/
 │   ├── test_turn_pipeline_di.py               # 5-stage pipeline dependency injection isolation
 │   ├── test_turn_pipeline_hooks.py            # PipelineDeps hooks & telemetry trace recording
 │   ├── test_web_tools_security.py             # PinnedIPTransport DNS rebinding, IPv6/NAT64 & fetch cap
-│   └── ...                                    # (37 integration test files total)
+│   └── ...                                    # (38 integration test files total)
 └── e2e/                                       # Tier 3: Synthetic Slack event & behavioral harness
     ├── conftest.py                            # E2E CLI parser flags (--mock, --hybrid--mocked-llm)
     ├── hybrid_interceptor.py                  # Intercepts outbound WebClient calls & records assertions
@@ -65,8 +65,11 @@ tests/
 By default, running `pytest` automatically executes all tests in `tests/unit/` and `tests/integration/`, while cleanly bypassing `tests/e2e/`:
 
 ```bash
-# Parallel execution with pytest-xdist (recommended, <60s)
+# Parallel execution with pytest-xdist (recommended; ~2m20s on Windows 8-core)
 cmd /c .venv\Scripts\python.exe -u -m pytest -n auto --dist loadscope
+
+# Balanced 4-worker parallel run (~2m36s on Windows 8-core)
+cmd /c .venv\Scripts\python.exe -u -m pytest -n 4 --dist loadscope
 
 # Sequential execution
 cmd /c .venv\Scripts\python.exe -u -m pytest
@@ -116,7 +119,8 @@ cmd /c .venv\Scripts\python.exe -u -m pytest tests/unit/test_code_hygiene.py tes
 
 ## 🛡️ Testing Conventions & Principles
 
-1. **Deterministic Mocking & `InMemoryWorkspaceAdapter`**: Real LLM API calls and Slack HTTP calls must never be executed in standard unit tests. Use [`InMemoryWorkspaceAdapter`](file:///engine/adapters/slack/workspace_adapter.py), [`PipelineDeps`](file:///engine/orchestration/protocols.py), and `conftest.py` stubs.
-2. **Generation Divergence Tests**: Concurrency tests must verify that incrementing thread generation aborts ongoing background tasks without dangling coroutines.
-3. **Clean Fixture Teardown**: Async tests using `ThreadStateManager`, `TurnTraceRecorder`, or SQLite connections must cleanly close background worker coroutines and reset database connections upon teardown.
-4. **Hygiene & Layer Asserts**: All source and documentation files must conform to [`test_code_hygiene.py`](file:///tests/unit/test_code_hygiene.py) and [`test_architecture_layers.py`](file:///tests/unit/test_architecture_layers.py), preventing debug print statements, broken markdown file links, legacy brand strings, and upward layer imports.
+1. **Deterministic Mocking, Fail-Closed LLM Guard & `InMemoryWorkspaceAdapter`**: Real LLM API calls and Slack HTTP calls must never be executed in standard unit/integration tests. [`tests/conftest.py`](file:///tests/conftest.py) enforces both a fail-closed `_UnmockedSlackClientGuard` and `guard_unmocked_llm_calls_for_tests` (via `configure_default_llm_guard` in [`llm_utils.py`](file:///engine/core/llm_utils.py)), failing any test that triggers an unmocked `litellm.acompletion` or `litellm.aembedding` call even behind `try/except` fallbacks. Use [`InMemoryWorkspaceAdapter`](file:///engine/adapters/slack/workspace_adapter.py), [`PipelineDeps`](file:///engine/orchestration/protocols.py), `configure_llm_completion_fn(...)`, `configure_intent_extractor(...)` (e.g. `noop_intent_extractor`), and `conftest.py` stubs.
+2. **Scoped Presidio NER (`@pytest.mark.presidio`)**: Heavy spaCy/Presidio NER initialization (`en_core_web_sm`) is disabled by default on the global `pii_masker` singleton during unit/integration tests (running deterministic regex scrubbing in `<0.1ms`). Tests exercising real Presidio NER on the singleton must be marked `@pytest.mark.presidio`.
+3. **Generation Divergence Tests**: Concurrency tests must verify that incrementing thread generation aborts ongoing background tasks without dangling coroutines.
+4. **Clean Fixture Teardown**: Async tests using `ThreadStateManager`, `TurnTraceRecorder`, or SQLite connections must cleanly close background worker coroutines and reset database connections upon teardown.
+5. **Hygiene & Layer Asserts**: All source and documentation files must conform to [`test_code_hygiene.py`](file:///tests/unit/test_code_hygiene.py) and [`test_architecture_layers.py`](file:///tests/unit/test_architecture_layers.py), preventing debug print statements, broken markdown file links, legacy brand strings, and upward layer imports.

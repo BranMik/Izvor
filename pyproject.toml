@@ -62,6 +62,9 @@ norecursedirs = [
     "agents_resources",
     "system_resources",
 ]
+markers = [
+    "presidio: tests exercising real Presidio/spaCy NER model loading",
+]
 
 [tool.ruff]
 line-length = 120

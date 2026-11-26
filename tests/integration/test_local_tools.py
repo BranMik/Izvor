@@ -5,16 +5,22 @@ from core.domain import SYSTEM_PRINCIPAL
 from services.local_tools import list_documents, read_document, write_document
 
 
-def test_local_tools_write_and_read():
+def test_local_tools_write_and_read(tmp_path):
+    from services.local_tools import configure_paths, reset_paths
+
     rel_path = "tests/scratch_test.txt"
     content = "Hello from Native Local Tools Test!"
 
-    write_res = write_document(rel_path, content, principal=SYSTEM_PRINCIPAL)
-    assert "success" in write_res
+    configure_paths(agents_resources_dir=tmp_path)
+    try:
+        write_res = write_document(rel_path, content, principal=SYSTEM_PRINCIPAL)
+        assert "success" in write_res
 
-    read_res = read_document(rel_path, principal=SYSTEM_PRINCIPAL)
-    res_json = json.loads(read_res)
-    assert res_json.get("content") == content
+        read_res = read_document(rel_path, principal=SYSTEM_PRINCIPAL)
+        res_json = json.loads(read_res)
+        assert res_json.get("content") == content
+    finally:
+        reset_paths()
 
 def test_local_tools_list_directory():
     list_res = list_documents(".", principal=SYSTEM_PRINCIPAL)

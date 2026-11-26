@@ -108,6 +108,10 @@ def test_slash_triggers_mapping():
 @pytest.mark.anyio
 async def test_deterministic_fast_path_slash_commands():
     """Tests 100% fail-proof slash command parsing via DirectiveParser."""
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     raw = "/max-words 45 /history 2 [agent-10008] inspect database"
     directives = await directive_parser.parse(raw)
 
@@ -206,6 +210,10 @@ async def test_global_skill_declarative_frontmatter():
 @pytest.mark.anyio
 async def test_dynamic_slash_parsing_grant_and_revoke_for_all():
     """Verifies dynamic slash command extraction for grant_skill_for_all and revoke_skill_for_all without hardcoding."""
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     # Test grant_skill_for_all with multiple skills
     raw1 = "/grant_skill_for_all web_research document_reader Discuss database schema"
     d1 = await directive_parser.parse(raw1)

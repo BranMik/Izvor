@@ -3,11 +3,14 @@ import logging
 from pathlib import Path
 import re
 import threading
+from typing import TYPE_CHECKING, Any
 
 import core.paths as core_paths
 from services.audit_logger import log_audit_event
-from services.security.guardrail import GuardrailService, guardrail_service
 from services.security.pii_masker import PIIMasker, extract_skill_exclusion_terms, pii_masker
+
+if TYPE_CHECKING:
+    from services.security.guardrail import GuardrailService, guardrail_service
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +133,15 @@ def scan_output_for_secrets(text: str, user_id: str = "agent", settings_file: Pa
             return rule_name
 
     return None
+
+def __getattr__(name: str) -> Any:
+    """Lazily resolves guardrail exports so security regex/PII imports avoid loading lancedb/pandas."""
+    if name in ("GuardrailService", "guardrail_service"):
+        from services.security import guardrail as _guardrail_mod
+
+        return getattr(_guardrail_mod, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "GuardrailService",

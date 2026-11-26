@@ -6,9 +6,8 @@ import json
 import logging
 import random
 import re
+import sys
 from typing import Any
-
-import litellm
 
 from core.paths import SYSTEM_SETTINGS_FILE
 
@@ -62,7 +61,36 @@ LLM_MAX_RETRIES = get_llm_max_retries()
 _privacy_mode_provider: Callable[[], bool] | None = None
 _pii_masker_instance: Any = None
 _llm_completion_fn: Any = None
+_default_llm_guard: Callable[..., Any] | None = None
 _llm_sleep_fn: Any = None
+
+
+def _get_litellm() -> Any:
+    """Lazily imports and returns the litellm module."""
+    import litellm
+
+    return litellm
+
+
+def _is_unmocked_litellm_callable(func: Any) -> bool:
+    """Returns True when `func` is None or an unpatched litellm completion/embedding function."""
+    if func is None:
+        return True
+    mod = getattr(func, "__module__", "") or ""
+    name = getattr(func, "__name__", "") or ""
+    return isinstance(mod, str) and mod.startswith("litellm.") and name in ("acompletion", "aembedding")
+
+
+def configure_default_llm_guard(guard: Callable[..., Any] | None) -> None:
+    """Configures a fail-closed guard invoked when an unmocked litellm call is attempted in tests."""
+    global _default_llm_guard
+    _default_llm_guard = guard
+
+
+def reset_default_llm_guard() -> None:
+    """Resets the fail-closed default LLM guard."""
+    global _default_llm_guard
+    _default_llm_guard = None
 
 
 def configure_llm_completion_fn(fn: Any) -> None:
@@ -141,37 +169,41 @@ def classify_agent_error(e: Exception) -> str:
     error_str = str(e).lower()
     error_type = type(e).__name__.lower()
 
-    # 1. Type inspection against litellm.exceptions (auth/rate-limit/not-found first;
-    #    check API-key wording before treating InternalServerError/APIConnectionError as 503
-    #    or BadRequestError as non-auth bad_request, because LiteLLM wraps missing keys there).
-    try:
-        if isinstance(e, litellm.exceptions.RateLimitError):
-            return "rate_limit"
-        if isinstance(
-            e,
-            (
-                litellm.exceptions.AuthenticationError,
-                litellm.exceptions.PermissionDeniedError,
-            ),
-        ):
-            return "api_key_not_found"
-        if isinstance(e, litellm.exceptions.NotFoundError):
-            return "model_not_found"
-        bad_request_types = tuple(
-            cls
-            for cls in (
-                getattr(litellm.exceptions, "BadRequestError", None),
-                getattr(litellm.exceptions, "ContextWindowExceededError", None),
-                getattr(litellm.exceptions, "ContentPolicyViolationError", None),
-            )
-            if cls is not None
-        )
-        if bad_request_types and isinstance(e, bad_request_types):
-            if _is_api_key_error_text(error_str, error_type):
+    # 1. Type inspection against litellm.exceptions (only if litellm is already imported;
+    #    auth/rate-limit/not-found first; check API-key wording before treating
+    #    InternalServerError/APIConnectionError as 503 or BadRequestError as non-auth
+    #    bad_request, because LiteLLM wraps missing keys there).
+    litellm_mod = sys.modules.get("litellm")
+    litellm_exceptions = getattr(litellm_mod, "exceptions", None) if litellm_mod is not None else None
+    if litellm_exceptions is not None:
+        try:
+            if isinstance(e, litellm_exceptions.RateLimitError):
+                return "rate_limit"
+            if isinstance(
+                e,
+                (
+                    litellm_exceptions.AuthenticationError,
+                    litellm_exceptions.PermissionDeniedError,
+                ),
+            ):
                 return "api_key_not_found"
-            return "bad_request"
-    except (AttributeError, TypeError):
-        pass
+            if isinstance(e, litellm_exceptions.NotFoundError):
+                return "model_not_found"
+            bad_request_types = tuple(
+                cls
+                for cls in (
+                    getattr(litellm_exceptions, "BadRequestError", None),
+                    getattr(litellm_exceptions, "ContextWindowExceededError", None),
+                    getattr(litellm_exceptions, "ContentPolicyViolationError", None),
+                )
+                if cls is not None
+            )
+            if bad_request_types and isinstance(e, bad_request_types):
+                if _is_api_key_error_text(error_str, error_type):
+                    return "api_key_not_found"
+                return "bad_request"
+        except (AttributeError, TypeError):
+            pass
 
     # 2. HTTP status code inspection
     status_code = (
@@ -205,19 +237,20 @@ def classify_agent_error(e: Exception) -> str:
     if isinstance(e, (TimeoutError, asyncio.TimeoutError) + httpx_timeout_cls):
         return "service_unavailable"
 
-    try:
-        if isinstance(
-            e,
-            (
-                litellm.exceptions.ServiceUnavailableError,
-                litellm.exceptions.Timeout,
-                litellm.exceptions.InternalServerError,
-                litellm.exceptions.APIConnectionError,
-            ),
-        ):
-            return "service_unavailable"
-    except (AttributeError, TypeError):
-        pass
+    if litellm_exceptions is not None:
+        try:
+            if isinstance(
+                e,
+                (
+                    litellm_exceptions.ServiceUnavailableError,
+                    litellm_exceptions.Timeout,
+                    litellm_exceptions.InternalServerError,
+                    litellm_exceptions.APIConnectionError,
+                ),
+            ):
+                return "service_unavailable"
+        except (AttributeError, TypeError):
+            pass
 
     if isinstance(status_code, int) and status_code in (500, 502, 503, 504, 529):
         return "service_unavailable"
@@ -405,6 +438,11 @@ async def execute_llm_with_retry(
     call_kwargs["num_retries"] = 0
     call_kwargs.setdefault("timeout", 120.0)
 
+    if _llm_completion_fn is None and _default_llm_guard is not None and _is_unmocked_litellm_callable(func):
+        guard_res = _default_llm_guard(agent_key=agent_key, kwargs=call_kwargs)
+        if inspect.isawaitable(guard_res):
+            await guard_res
+
     last_error: Exception | None = None
     for attempt in range(1, effective_max_attempts + 1):
         if is_superseded_fn and is_superseded_fn():
@@ -418,7 +456,7 @@ async def execute_llm_with_retry(
                 logger.info(
                     f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{effective_max_attempts})..."
                 )
-            active_func = _llm_completion_fn or func or litellm.acompletion
+            active_func = _llm_completion_fn or func or _get_litellm().acompletion
             res = await _invoke_llm(active_func, call_kwargs)
 
             # 2. Unmasking Phase (keep tool_calls arguments and intermediate tool-calling messages

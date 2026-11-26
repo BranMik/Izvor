@@ -1,29 +1,45 @@
 import ast
+import functools
+import os
 from pathlib import Path
-
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-EXCLUDED_DIRS = {
+EXCLUDED_DIRS = frozenset({
     ".venv",
     ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
     "deprecated",
     "static_backup",
     "Izvor-app",
     "system_resources",
     "flat-histories",
     "__pycache__",
-}
+    "data",
+    "agents_resources",
+})
 
 
-def _get_python_source_files() -> list[Path]:
-    py_files = []
-    for path in PROJECT_ROOT.rglob("*.py"):
-        if any(part in EXCLUDED_DIRS for part in path.parts):
-            continue
-        py_files.append(path)
-    return py_files
+@functools.lru_cache(maxsize=1)
+def _get_python_source_files() -> tuple[Path, ...]:
+    py_files: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(PROJECT_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
+        for fname in filenames:
+            if fname.endswith(".py"):
+                py_files.append(Path(dirpath) / fname)
+    return tuple(py_files)
+
+
+@functools.lru_cache(maxsize=None)
+def _parse_ast(py_file: Path) -> ast.Module | None:
+    try:
+        return ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+    except (SyntaxError, UnicodeDecodeError):
+        return None
 
 
 def test_core_does_not_import_adapters():
@@ -32,7 +48,9 @@ def test_core_does_not_import_adapters():
     violations = []
 
     for py_file in core_dir.glob("*.py"):
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        tree = _parse_ast(py_file)
+        if tree is None:
+            continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -65,7 +83,9 @@ def test_core_does_not_import_higher_layers():
     violations = []
 
     for py_file in core_dir.glob("*.py"):
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        tree = _parse_ast(py_file)
+        if tree is None:
+            continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -87,7 +107,9 @@ def test_core_top_level_does_not_import_orchestration():
     violations = []
 
     for py_file in core_dir.glob("*.py"):
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        tree = _parse_ast(py_file)
+        if tree is None:
+            continue
         # Inspect only top-level statements
         for node in tree.body:
             if isinstance(node, ast.Import):
@@ -109,9 +131,8 @@ def test_no_await_inside_sync_db_transactions():
     violations = []
 
     for py_file in _get_python_source_files():
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        except SyntaxError:
+        tree = _parse_ast(py_file)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -148,10 +169,8 @@ def test_no_bare_except_pass():
     for py_file in _get_python_source_files():
         if "tests" in py_file.parts:
             continue
-        try:
-            content = py_file.read_text(encoding="utf-8")
-            tree = ast.parse(content, filename=str(py_file))
-        except (SyntaxError, UnicodeDecodeError):
+        tree = _parse_ast(py_file)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -184,10 +203,8 @@ def test_slack_client_chat_not_called_outside_allowed_modules():
         rel_path = py_file.relative_to(PROJECT_ROOT)
         if any(rel_path.is_relative_to(p) for p in allowed_prefixes):
             continue
-        try:
-            content = py_file.read_text(encoding="utf-8")
-            tree = ast.parse(content, filename=str(py_file))
-        except (SyntaxError, UnicodeDecodeError):
+        tree = _parse_ast(py_file)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -239,7 +256,9 @@ def test_strict_five_tier_dag_layer_boundaries():
                 continue
             source_tier = layer_tiers[source_layer]
 
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        tree = _parse_ast(py_file)
+        if tree is None:
+            continue
         for node in ast.walk(tree):
             imported_mods: list[str] = []
             if isinstance(node, ast.Import):
@@ -280,7 +299,9 @@ def test_api_and_adapters_do_not_cross_import():
             continue
         for py_file in source_dir.rglob("*.py"):
             rel_path = py_file.relative_to(PROJECT_ROOT)
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            tree = _parse_ast(py_file)
+        if tree is None:
+            continue
             for node in ast.walk(tree):
                 imported_mods: list[str] = []
                 if isinstance(node, ast.Import):

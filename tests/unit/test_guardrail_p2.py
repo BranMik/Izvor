@@ -127,6 +127,8 @@ async def test_agent_router_guardrail_exception_fail_closed():
 @pytest.mark.anyio
 async def test_agent_router_guardrail_exception_fail_open():
     """TKT-905: Unexpected exception in guardrail_service allows turn in open mode."""
+    from conftest import make_mock_acompletion
+    from core.llm_utils import configure_llm_completion_fn
     from orchestration.agent_router import (
         configure_guardrail_checker,
         process_and_respond,
@@ -135,6 +137,7 @@ async def test_agent_router_guardrail_exception_fail_open():
     from orchestration.protocols import PipelineDeps
     from config_store.system_settings import set_guardrail_fail_mode
 
+    configure_llm_completion_fn(make_mock_acompletion())
     set_guardrail_fail_mode("open", save=False)
     configure_guardrail_checker(AsyncMock(side_effect=RuntimeError("lance_db_corrupted")))
 

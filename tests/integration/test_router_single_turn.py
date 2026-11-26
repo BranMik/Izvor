@@ -257,7 +257,10 @@ async def test_scenario_1_single_agent_tagged():
 
 @pytest.mark.anyio
 async def test_extract_history_limit_formats():
+    from conftest import noop_intent_extractor
     from pipeline.directive_parser import directive_parser
+
+    configure_intent_extractor(noop_intent_extractor)
 
     # 1. Standard format /history 5
     res = await directive_parser.parse("<@U12345> Tell me a joke /history 5")
@@ -552,7 +555,10 @@ def test_build_llm_messages_normalizes_mid_system_and_coalesces_consecutive_role
 
 @pytest.mark.anyio
 async def test_extract_max_words_limit():
+    from conftest import noop_intent_extractor
     from pipeline.directive_parser import directive_parser
+
+    configure_intent_extractor(noop_intent_extractor)
 
     # Standard syntax
     res = await directive_parser.parse("/max_words 50 hello world")
@@ -588,7 +594,10 @@ async def test_extract_max_words_limit():
 
 @pytest.mark.anyio
 async def test_extract_min_words_limit():
+    from conftest import noop_intent_extractor
     from pipeline.directive_parser import directive_parser
+
+    configure_intent_extractor(noop_intent_extractor)
 
     # Standard syntax
     res = await directive_parser.parse("/min_words 50 hello world")

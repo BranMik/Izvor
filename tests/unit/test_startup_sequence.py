@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 
 from main import app, lifespan
 
+pytestmark = pytest.mark.presidio
+
 
 @pytest.mark.anyio
 async def test_lifespan_warmup_order_and_completion_log(caplog):

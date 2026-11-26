@@ -2,8 +2,6 @@ import inspect
 import logging
 from typing import Any
 
-import litellm
-
 from .config import EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL, get_rag_setting
 
 logger = logging.getLogger(__name__)
@@ -65,11 +63,12 @@ class EmbeddingService:
         return results
 
     async def _embed_batch(self, batch: list[str], max_retries: int = 3) -> list[list[float]]:
-        from core.llm_utils import execute_llm_with_retry
+        from core.llm_utils import _get_litellm, execute_llm_with_retry
 
+        embed_fn = self._embed_func or _get_litellm().aembedding
         try:
             response: Any = await execute_llm_with_retry(
-                func=self._embed_func or litellm.aembedding,
+                func=embed_fn,
                 kwargs={
                     "model": self.model,
                     "input": batch,

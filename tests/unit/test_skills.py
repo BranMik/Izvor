@@ -80,6 +80,10 @@ def test_entity_resolver_extract_tags(mock_agents_config):
 
 @pytest.mark.anyio
 async def test_directive_parser_slash_commands():
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
+
+    configure_intent_extractor(noop_intent_extractor)
     parser = DirectiveParser()
     raw = "/max_words 40 /history 5 /exclude [agent-10011] What is our roadmap?"
     directives = await parser.parse(raw)

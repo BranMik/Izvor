@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock
 import pytest
 
+from conftest import make_mock_acompletion
+from core.llm_utils import configure_llm_completion_fn
 from orchestration.nomination import get_initial_agents
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
@@ -9,7 +11,8 @@ from pipeline.orchestrator import SandwichOrchestrator
 
 @pytest.fixture(autouse=True)
 def clean_thread_state():
-    """Ensure clean thread state before each test."""
+    """Ensure clean thread state and deterministic LLM mock before each test."""
+    configure_llm_completion_fn(make_mock_acompletion())
     thread_state_manager.reset_all()
     yield
     thread_state_manager.reset_all()

@@ -50,3 +50,29 @@ def test_conftest_isolation_verifies_clean_slate() -> None:
     assert summary["components"] == {}
     assert get_telemetry_stats()["buffer_depth"] == 0
 
+
+async def _run_unmocked_llm_call():
+    import litellm
+    from core.llm_utils import execute_llm_with_retry
+
+    await execute_llm_with_retry(
+        func=litellm.acompletion,
+        kwargs={"model": "gemini/gemini-3.8-flash", "messages": [{"role": "user", "content": "ping"}]},
+        agent_key="isolation_probe",
+        thread_key=("C_ISO", "1"),
+    )
+
+
+def test_guard_blocks_unmocked_llm_calls(guard_unmocked_llm_calls_for_tests) -> None:
+    """Confirms fail-closed LLM guard blocks unmocked litellm calls immediately."""
+    import asyncio
+    import pytest
+
+    with pytest.raises(RuntimeError, match="Real LLM API call blocked"):
+        asyncio.run(_run_unmocked_llm_call())
+
+    assert len(guard_unmocked_llm_calls_for_tests) == 1
+    assert "isolation_probe" in guard_unmocked_llm_calls_for_tests[0]
+    guard_unmocked_llm_calls_for_tests.clear()
+
+

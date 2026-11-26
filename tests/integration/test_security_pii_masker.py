@@ -99,6 +99,7 @@ async def test_execute_llm_with_retry_masks_tool_calls_and_preserves_turn_mappin
 
 
 @pytest.mark.anyio
+@pytest.mark.presidio
 async def test_execute_llm_with_retry_skips_system_prompt_masking_and_preserves_directives():
     set_privacy_mode_provider(lambda: True)
     try:

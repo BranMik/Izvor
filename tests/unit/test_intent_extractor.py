@@ -201,11 +201,13 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped():
     from unittest.mock import AsyncMock
 
     from agents.usage_agent import configure_record_thread_tokens
+    from conftest import async_noop_sleep
     from core.config import AGENTS_CONFIG
     from core.llm_utils import configure_llm_completion_fn
     from orchestration.agent_router import (
         configure_fetch_thread_history,
         configure_post_agent_response,
+        configure_router_sleep_fn,
         process_and_respond,
     )
     from config_store.agent_settings import (
@@ -215,13 +217,15 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped():
     )
     from orchestration.thread_state import thread_state_manager
 
-    set_orchestration_mode("sandwich")
+    configure_router_sleep_fn(async_noop_sleep)
+    set_orchestration_mode("sandwich", save=False)
     set_sandwich_config(
         start_chain=["agent-10005", "agent-10001"],
         end_chain=["agent-10008"],
+        save=False,
     )
     for a in AGENTS_CONFIG:
-        set_agent_enabled(a, a in ("agent-10005", "agent-10001", "agent-10008", "agent-10011"))
+        set_agent_enabled(a, a in ("agent-10005", "agent-10001", "agent-10008", "agent-10011"), save=False)
 
     posted_messages = []
 

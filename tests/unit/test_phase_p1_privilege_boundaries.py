@@ -89,6 +89,7 @@ async def test_validation_stage_blocks_inferred_grant_skill_for_all():
     mock_intent.is_file_req = False
     mock_intent.target_filename = None
     mock_intent.cleaned_prompt = "Please grant skill web_research"
+    mock_intent.detected_language = "English"
     mock_intent.is_stop = False
 
     thread_skills_manager.clear_thread("C_TEST_P1", "123.456")
@@ -155,6 +156,7 @@ async def test_validation_stage_blocks_inferred_revoke_skill_for_all():
     mock_intent.is_file_req = False
     mock_intent.target_filename = None
     mock_intent.cleaned_prompt = "revoke web_research"
+    mock_intent.detected_language = "English"
     mock_intent.is_stop = False
 
     thread_skills_manager.grant_skills("C_TEST_P1", "123.456", ["web_research"])

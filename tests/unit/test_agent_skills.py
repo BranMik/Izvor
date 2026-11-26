@@ -341,7 +341,11 @@ def test_declarative_extraction_rules_and_file_handler():
 @pytest.mark.anyio
 async def test_dynamic_slash_command_from_skill_definition():
     """Verifies that slash commands registered in triggers.slash are dynamically parsed into ActionDirectives."""
+    from conftest import noop_intent_extractor
+    from nlp.intent_extractor import configure_intent_extractor
     from pipeline.directive_parser import directive_parser
+
+    configure_intent_extractor(noop_intent_extractor)
 
     # Slash command /document_reader registered in document_reader SKILL.md
     res = await directive_parser.parse("/document_reader report.pdf Check this file")

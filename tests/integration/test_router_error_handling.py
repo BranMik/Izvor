@@ -725,7 +725,7 @@ async def test_execute_llm_with_retry_single_layer_backoff_dynamic_and_dict_unma
     assert sleep_delays == [0.5, 1.0, 2.0]
 
     # 3. Dict-style tool_calls stay masked through execute_llm_with_retry, while non-tool final replies unmask content
-    masker = PIIMasker()
+    masker = PIIMasker(enable_ner=False)
     llm_utils.set_privacy_mode_provider(lambda: True)
     llm_utils.set_pii_masker_instance(masker)
     try:
