@@ -660,6 +660,24 @@ class ThreadStateManager:
         """Returns all shared evidence items recorded for this thread."""
         return self.evidence.get_round_evidence(channel_id, thread_ts)
 
+    def get_shared_evidence_source_agents(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        *,
+        file_name: str | None = None,
+        tool_names: set[str] | list[str] | None = None,
+        exclude_file_names: set[str] | None = None,
+    ) -> list[str]:
+        """Returns deduplicated agent keys whose shared evidence matches file_name or tool_names."""
+        return self.evidence.find_matching_evidence_agents(
+            channel_id,
+            thread_ts,
+            file_name=file_name,
+            tool_names=tool_names,
+            exclude_file_names=exclude_file_names,
+        )
+
     def format_round_evidence(
         self,
         channel_id: str,

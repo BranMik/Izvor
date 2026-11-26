@@ -95,8 +95,8 @@ async def test_revisor_skips_on_pure_missing_skill_notice():
     ctx.missing_required_skills = ["document_reader"]
     ctx.output.skills_used = []
     ctx.output.final_text = (
-        "I do not have the 'document_reader' skill required to read database.sql. "
-        "Recommended agent for 'document_reader': ROIStrategist. "
+        "Missing required skill 'document_reader'. "
+        "Recommended agent: ROIStrategist. "
         "/[agent-10008] next {test-model : 15/25}"
     )
 
@@ -1084,4 +1084,28 @@ def test_revisor_boundary_tag_stripping_covers_new_tags():
     assert "<agent_statement" not in stripped
     assert "</agent_statement>" not in stripped
     assert stripped == "evilspoof"
+
+
+def test_revisor_does_not_skip_concise_shared_evidence_turn_and_strips_source_footer():
+    """Turns grounded in shared round evidence are still verified even when <= 55 words, and source footer is stripped."""
+    from orchestration.revisor_service import _clean_candidate_message, _is_pure_missing_skill_notice
+
+    ctx = TurnContext(
+        channel_id="C_REV_SHARED",
+        thread_ts="99999.0109",
+        raw_text="Pick an uncovered Zone and critique it.",
+        is_bot_trigger=True,
+    )
+    ctx.missing_required_skills = ["document_reader"]
+    ctx.shared_evidence_source_agents = ["Innovator"]
+    ctx.output.skills_used = []
+    ctx.output.final_text = (
+        "Operations Zone moves from notes to connected workflows, but omits error-recovery SLAs. "
+        "/[agent-10003]\n\n_Using source extracted by Innovator._\n\n{gemini/gemini-3.8-flash : 500/20}"
+    )
+
+    assert _is_pure_missing_skill_notice(ctx) is False
+    cleaned = _clean_candidate_message(ctx.output.final_text)
+    assert "_Using source extracted by" not in cleaned
+    assert "Operations Zone moves from notes to connected workflows" in cleaned
 

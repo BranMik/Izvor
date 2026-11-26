@@ -593,7 +593,7 @@ class SkillRegistry:
                 "- Reference this directory to answer user inquiries regarding platform capabilities and agent skill assignments.",
                 "- Agents are strictly limited in tool usage: load and execute tools ONLY for skills explicitly authorized for your agent role, granted thread-actively, or listed under '### AVAILABLE SKILLS'.",
                 "- Any skill marked with '(Authorized: All Agents (Thread-Global Active))', '(Thread Active)', or listed under '### AVAILABLE SKILLS' IS authorized for you to use in this thread.",
-                "- When a user requests an action requiring an unauthorized skill that is not authorized for you in this thread, explicitly report lack of permission in at most 50 words (including a 1-line hint recommending just 1 authorized agent by name—never by agent ID—or /grant_skill) without reflecting on skills architecture, and proceed normally with any other parts of the prompt that do not require the missing skill.",
+                "- When a user requests an action requiring an unauthorized skill that is not authorized for you in this thread and no shared round evidence covers it, state ONLY which required skill is lacking and 1 recommended authorized agent by name (never by agent ID, without mentioning document names or '/grant_skill') in at most 50 words without reflecting on skills architecture, and proceed normally with any other parts of the prompt that do not require the missing skill.",
                 "- Never attempt to circumvent permission boundaries.",
             ]
         )

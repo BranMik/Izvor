@@ -124,7 +124,8 @@ async def test_zero_authorized_agents_halts_cleanly_with_notice_and_hint():
     assert thread_state_manager.has_remaining_agents_key(channel_id, thread_ts) is False
     assert len(posted_sys_messages) == 1
     assert "No agents in the active workflow are authorized for this skill" in posted_sys_messages[0]
-    assert "/grant_skill" in posted_sys_messages[0]
+    assert "Recommended agent:" in posted_sys_messages[0]
+    assert "/grant_skill" not in posted_sys_messages[0]
 
 
 @pytest.mark.anyio
@@ -479,7 +480,7 @@ async def test_round2_updates_active_prompt_and_hydrates_pure_skill_for_bot_turn
 
 @pytest.mark.anyio
 async def test_execution_short_circuits_missing_skill_pure_task_with_zero_llm_calls():
-    """Verifies pure-skill turns lacking required skill short-circuit deterministically (0 LLM tokens) and preserve hint."""
+    """Verifies pure-skill turns lacking required skill with no prior verified output short-circuit deterministically (0 LLM tokens) with a short notice."""
     channel_id = "C_SHORT_CIRCUIT_1"
     thread_ts = "100000.0021"
     thread_state_manager.clear_state(channel_id, thread_ts)
@@ -503,7 +504,7 @@ async def test_execution_short_circuits_missing_skill_pure_task_with_zero_llm_ca
         is_pure_skill_task=True,
         missing_required_skills=["document_reader"],
         file_context={"file_name": "02_Foundation_Blueprint.pdf", "required_skill": "document_reader", "authorized_agents": None},
-        effective_history=[{"role": "assistant", "content": "[Innovator]: Foundation 2\n\nSkills used: [document_reader]"}],
+        effective_history=[{"role": "user", "content": "Read 02_Foundation_Blueprint.pdf"}],
         remaining=["agent-10003"],
         eligible_remaining_agents=["agent-10003"],
         next_designated_agent="agent-10003",
@@ -515,23 +516,81 @@ async def test_execution_short_circuits_missing_skill_pure_task_with_zero_llm_ca
     assert ctx.output.is_deterministic_missing_skill is True
     assert ctx.output.total_prompt_tokens == 0
     assert ctx.output.total_completion_tokens == 0
-    assert "document_reader" in ctx.output.final_text
-    assert "/grant_skill" in ctx.output.final_text
-    assert "Recommended agent for 'document_reader':" in ctx.output.final_text
+    assert "Missing required skill 'document_reader'" in ctx.output.final_text
+    assert "Recommended agent:" in ctx.output.final_text
+    assert "02_Foundation_Blueprint.pdf" not in ctx.output.final_text
+    assert "/grant_skill" not in ctx.output.final_text
     assert "agent-10002" not in ctx.output.final_text
     assert "agent-10006" not in ctx.output.final_text
     assert "agent-10008" not in ctx.output.final_text
     assert "agent-10016" not in ctx.output.final_text
 
-    # Stage 5 preserves the deterministic notice + /grant_skill hint without truncating at max_words=10
+    # Stage 5 preserves the deterministic notice without truncating at max_words=10
     with patch("orchestration.stages.post_record.trigger_thread_notes_update"), \
          patch("orchestration.stages.post_record.trigger_usage_update"), \
          patch("orchestration.stages.post_record.async_record_flat_history", AsyncMock()):
         res = await pipeline.post_record_stage.stage_post_and_record(ctx)
 
-    assert "/grant_skill" in ctx.output.final_text
-    assert "Recommended agent for 'document_reader':" in ctx.output.final_text
+    assert "Recommended agent:" in ctx.output.final_text
+    assert "/grant_skill" not in ctx.output.final_text
     assert "/[agent-10003]" in ctx.output.final_text
     assert res["agent_key"] == "agent-10001"
+
+
+@pytest.mark.anyio
+async def test_execution_uses_shared_evidence_instead_of_short_circuiting_with_tight_max_words():
+    """Verifies downstream agents execute LLM using shared round evidence even under max_words=50/10 and get deterministic attribution footer."""
+    channel_id = "C_SHARED_EVIDENCE_EXEC"
+    thread_ts = "100000.0023"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+    thread_state_manager.set_max_words(channel_id, thread_ts, 50)
+
+    mock_resp = MagicMock()
+    mock_resp.model = "gemini/gemini-3.8-flash"
+    mock_resp.choices = [
+        MagicMock(message=MagicMock(content="Operations Zone shifts from meeting notes to connected systems; lacks governance metrics. /[agent-10003]", tool_calls=None))
+    ]
+    mock_resp.usage = {"prompt_tokens": 120, "completion_tokens": 20}
+    mock_llm = AsyncMock(return_value=mock_resp)
+    mock_slack = AsyncMock(return_value={"ok": True, "ts": "100000.0024"})
+
+    pipeline = TurnPipeline(
+        llm_executor=mock_llm,
+        slack_poster=mock_slack,
+        sleep_fn=AsyncMock(),
+    )
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="From file 01_AI_Maturity_Assessment.pdf pick one uncovered Zone and critically evaluate it.",
+        is_bot_trigger=True,
+        agent_key="agent-10001",
+        agent_cfg={"username": "Visionary", "displayname": "Visionary", "skills": [], "model": "gemini/gemini-3.8-flash"},
+        is_pure_skill_task=True,
+        missing_required_skills=["document_reader"],
+        file_context={"file_name": "01_AI_Maturity_Assessment.pdf", "content": "Operations Zone details...", "required_skill": "document_reader", "authorized_agents": None},
+        shared_round_evidence="1. [Tool: document_reader | Agent: agent-10002]:\n   Document: 01_AI_Maturity_Assessment.pdf\nOperations Zone details...",
+        shared_evidence_source_agents=["Innovator"],
+        effective_history=[{"role": "assistant", "content": "[Innovator]: Finance Zone evaluation.\n\nSkills used: [document_reader]"}],
+        remaining=["agent-10003"],
+        eligible_remaining_agents=["agent-10003"],
+        next_designated_agent="agent-10003",
+        messages=[{"role": "system", "content": "sys"}, {"role": "user", "content": "prompt"}],
+    )
+
+    halt = await pipeline.execution_stage.stage_execute_llm(ctx)
+    assert halt is None
+    mock_llm.assert_awaited_once()
+    assert ctx.output.is_deterministic_missing_skill is False
+
+    with patch("orchestration.stages.post_record.trigger_thread_notes_update"), \
+         patch("orchestration.stages.post_record.trigger_usage_update"), \
+         patch("orchestration.stages.post_record.async_record_flat_history", AsyncMock()):
+        await pipeline.post_record_stage.stage_post_and_record(ctx)
+
+    assert "_Using source extracted by Innovator._" in ctx.output.final_text
+    assert "Operations Zone shifts" in ctx.output.final_text
+    assert "/[agent-10003]" in ctx.output.final_text
 
 

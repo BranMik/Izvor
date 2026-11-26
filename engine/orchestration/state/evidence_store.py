@@ -190,6 +190,56 @@ class RoundEvidenceStore:
                 return val
         return None
 
+    def get_shared_evidence_items(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        *,
+        exclude_file_names: set[str] | None = None,
+    ) -> list[EvidenceItem]:
+        """Returns valid shared (scope_key == '*') evidence items, optionally excluding files."""
+        items = self.get_round_evidence(channel_id, thread_ts)
+        shared_items = [x for x in items if x.scope_key == "*"]
+        if exclude_file_names:
+            excluded_lower = {f.strip().lower() for f in exclude_file_names if f and str(f).strip()}
+            shared_items = [
+                x
+                for x in shared_items
+                if (self._item_file_name(x) or "").strip().lower() not in excluded_lower
+            ]
+        return shared_items
+
+    def find_matching_evidence_agents(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        *,
+        file_name: str | None = None,
+        tool_names: set[str] | list[str] | None = None,
+        exclude_file_names: set[str] | None = None,
+    ) -> list[str]:
+        """Returns deduplicated agent keys whose shared evidence matches file_name or tool_names."""
+        shared_items = self.get_shared_evidence_items(
+            channel_id,
+            thread_ts,
+            exclude_file_names=exclude_file_names,
+        )
+        target_file_lower = file_name.strip().lower() if file_name and str(file_name).strip() else None
+        tool_set = {str(t).strip() for t in (tool_names or ()) if str(t).strip()}
+        if not target_file_lower and not tool_set:
+            return []
+
+        agents: list[str] = []
+        seen: set[str] = set()
+        for item in shared_items:
+            item_file = (self._item_file_name(item) or "").strip().lower()
+            matches_file = bool(target_file_lower and item_file == target_file_lower)
+            matches_tool = bool(tool_set and item.tool_name in tool_set)
+            if (matches_file or matches_tool) and item.agent_key and item.agent_key not in seen:
+                seen.add(item.agent_key)
+                agents.append(item.agent_key)
+        return agents
+
     def format_evidence_block(
         self,
         channel_id: str,
@@ -198,14 +248,11 @@ class RoundEvidenceStore:
         max_chars: int | None = None,
         exclude_file_names: set[str] | None = None,
     ) -> str | None:
-        items = self.get_round_evidence(channel_id, thread_ts)
-        # Only include non-agent-scoped items in shared round block
-        shared_items = [x for x in items if x.scope_key == "*"]
-        if exclude_file_names:
-            # Skip items whose file is already injected directly into the prompt this turn
-            shared_items = [
-                x for x in shared_items if self._item_file_name(x) not in exclude_file_names
-            ]
+        shared_items = self.get_shared_evidence_items(
+            channel_id,
+            thread_ts,
+            exclude_file_names=exclude_file_names,
+        )
         if not shared_items:
             return None
         selected = shared_items[-max_items:]

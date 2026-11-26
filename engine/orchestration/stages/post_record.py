@@ -378,6 +378,11 @@ class PostRecordStage:
             skills_str = ", ".join(f"[{s}]" for s in ctx.output.skills_used)
             footer_parts.append(f"Skills used: {skills_str}")
 
+        shared_sources = getattr(ctx, "shared_evidence_source_agents", None) or []
+        if shared_sources and not getattr(ctx.output, "is_deterministic_missing_skill", False):
+            sources_str = ", ".join(shared_sources)
+            footer_parts.append(f"_Using source extracted by {sources_str}._")
+
         agent_model = ctx.agent_cfg.get("model", "")
         fallback_from = getattr(ctx.output, "fallback_from_model", None)
         if fallback_from and agent_model:

@@ -190,6 +190,12 @@ def _clean_candidate_message(raw_text: str) -> str:
             flags=re.IGNORECASE,
         ).strip()
         cleaned = re.sub(
+            r"\s*_?Using source extracted by\s+[^\r\n_]+?\.?_?\s*$",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip()
+        cleaned = re.sub(
             r"\s*/\[[^\]]+\](?:\s+next)?\s*$",
             "",
             cleaned,
@@ -209,6 +215,8 @@ def _is_pure_missing_skill_notice(ctx: TurnContext) -> bool:
     if not missing:
         return False
     if getattr(ctx.output, "skills_used", None):
+        return False
+    if getattr(ctx, "shared_evidence_source_agents", None):
         return False
     final_text = _clean_candidate_message(getattr(ctx.output, "final_text", "") or "")
     words = final_text.split()

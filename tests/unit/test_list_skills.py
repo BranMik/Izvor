@@ -237,7 +237,7 @@ async def test_runtime_permission_enforcement():
     )
     data1 = json.loads(res1)
     assert "error" in data1
-    assert "Permission denied: Agent is not authorized to load skill 'document_authoring'" in data1["error"]
+    assert "Permission denied: Agent lacks 'document_authoring'" in data1["error"]
 
     # 2. Attempting to execute unauthorized tool write_to_file -> Rejected
     res2 = await skill_registry.execute_tool_async(
@@ -247,7 +247,7 @@ async def test_runtime_permission_enforcement():
     )
     data2 = json.loads(res2)
     assert "error" in data2
-    assert "Permission denied: Agent is not authorized to execute tool 'write_to_file'" in data2["error"]
+    assert "Permission denied: Agent lacks tool 'write_to_file'" in data2["error"]
 
     # 3. Loading authorized skill document_reader -> Allowed
     res3 = await skill_registry.execute_tool_async(
@@ -261,13 +261,13 @@ async def test_runtime_permission_enforcement():
 
 
 def test_get_skill_resolution_hint():
-    """Verify that get_skill_resolution_hint recommends 1 authorized agent by username (no agent IDs) and /grant_skill."""
+    """Verify that get_skill_resolution_hint recommends 1 authorized agent by username without agent IDs or /grant_skill."""
     import re
     from skills.registry import select_recommended_agent_from_keys
 
     hint = skill_registry.get_skill_resolution_hint("document_reader")
-    assert "Recommended agent for 'document_reader':" in hint
-    assert "/grant_skill" in hint
+    assert "Recommended agent:" in hint
+    assert "/grant_skill" not in hint
     assert not re.search(r"\bagent-\d+\b", hint), f"Agent ID leaked in hint: {hint}"
 
     # Verify single-agent priority: enabled > active workflow > coverage > alphabetical username
@@ -317,7 +317,8 @@ def test_get_skill_resolution_hint():
 
     # Multi-skill hint still recommends only 1 agent by username
     multi_hint = skill_registry.get_skill_resolution_hint(["document_reader", "web_research"])
-    assert "Recommended agent for 'document_reader', 'web_research':" in multi_hint
+    assert "Recommended agent:" in multi_hint
+    assert "/grant_skill" not in multi_hint
     assert not re.search(r"\bagent-\d+\b", multi_hint)
 
 

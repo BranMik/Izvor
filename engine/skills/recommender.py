@@ -159,8 +159,7 @@ def get_skill_resolution_hint(
     exclude_agent_key: str | None = None,
 ) -> str:
     """
-    Generates a concise 1-line resolution hint recommending 1 authorized agent by username
-    (if any) and how to grant the skill via /grant_skill or /grant_skill_for_all.
+    Generates a concise 1-line resolution hint recommending 1 authorized agent by username.
     """
     if isinstance(skill_names, str):
         raw_list = [skill_names.strip()]
@@ -169,7 +168,7 @@ def get_skill_resolution_hint(
 
     skill_list = list(dict.fromkeys(s for s in raw_list if s))
     if not skill_list:
-        return "Grant access via '/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'."
+        return "No authorized agent available."
 
     rec_username = recommend_agent_for_skills(
         skill_list,
@@ -179,13 +178,7 @@ def get_skill_resolution_hint(
     )
 
     skills_fmt = ", ".join(f"'{s}'" for s in skill_list)
-    if len(skill_list) == 1:
-        s_name = skill_list[0]
-        grant_clause = f"'/grant_skill {s_name} <agent>' or '/grant_skill_for_all {s_name}'"
-    else:
-        grant_clause = "'/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'"
-
     if rec_username:
-        return f"Recommended agent for {skills_fmt}: {rec_username} — or grant via {grant_clause}."
-    return f"Grant {skills_fmt} via {grant_clause}."
+        return f"Recommended agent: {rec_username}."
+    return f"No authorized agent available for {skills_fmt}."
 

@@ -94,9 +94,9 @@ def build_skill_resolution_hint(
     thread_ts: str | None = None,
     exclude_agent_key: str | None = None,
 ) -> str:
-    """Helper to query SkillRegistry for a 1-line resolution hint recommending 1 agent by username and /grant_skill."""
+    """Helper to query SkillRegistry for a 1-line resolution hint recommending 1 agent by username."""
     if not skill_names:
-        return "Grant access via '/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'."
+        return "No authorized agent available."
     try:
         from core.registry import get_skill_registry
 
@@ -110,8 +110,8 @@ def build_skill_resolution_hint(
             )
     except (ImportError, AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
         logger.debug(f"[MESSAGE BUILDER] Skill resolution hint fallback: {exc}")
-    s_str = skill_names if isinstance(skill_names, str) else ", ".join(str(s) for s in skill_names)
-    return f"Grant access via '/grant_skill {s_str} <agent>' or '/grant_skill_for_all {s_str}'."
+    s_str = skill_names if isinstance(skill_names, str) else ", ".join(f"'{s}'" for s in skill_names)
+    return f"No authorized agent available for {s_str}."
 
 
 def has_prior_verified_skill_output(
@@ -139,9 +139,8 @@ def build_deterministic_missing_skill_notice(
     thread_ts: str | None = None,
     agent_key: str | None = None,
 ) -> str:
-    """Builds a concise deterministic missing-skill / file-access notice with a 1-line resolution hint."""
+    """Builds a concise deterministic missing-skill / file-access notice stating only the skill and recommended agent."""
     if authorized_agents is not None and not missing_skills:
-        target_label = f"'{file_name}'" if file_name else "this file"
         rec_username = _select_single_authorized_username(
             authorized_agents,
             channel_id=channel_id,
@@ -149,14 +148,8 @@ def build_deterministic_missing_skill_notice(
             exclude_agent_key=agent_key,
         )
         if rec_username:
-            return (
-                f"I do not have authorization to access {target_label}. "
-                f"Recommended agent: {rec_username} — or grant access via '/grant_skill'."
-            )
-        return (
-            f"I do not have authorization to access {target_label}. "
-            f"Grant access via '/grant_skill' or tag an authorized agent."
-        )
+            return f"Not authorized to access this resource. Recommended agent: {rec_username}."
+        return "Not authorized to access this resource."
 
     skills_list = [str(s) for s in missing_skills if s]
     skills_fmt = ", ".join(f"'{s}'" for s in skills_list) if skills_list else "the required skill"
@@ -166,9 +159,7 @@ def build_deterministic_missing_skill_notice(
         thread_ts=thread_ts,
         exclude_agent_key=agent_key,
     )
-    if file_name:
-        return f"I lack the required {skills_fmt} skill to read '{file_name}'. {hint}"
-    return f"I lack the required {skills_fmt} skill to perform this task. {hint}"
+    return f"Missing required skill {skills_fmt}. {hint}"
 
 
 def build_llm_messages(
@@ -186,6 +177,7 @@ def build_llm_messages(
     required_skills: list[str] | None = None,
     episodic_summary: str | None = None,
     shared_round_evidence: str | None = None,
+    shared_evidence_sources: list[str] | None = None,
     channel_id: str | None = None,
     thread_ts: str | None = None,
     max_words: int | None = None,
@@ -245,6 +237,10 @@ def build_llm_messages(
         notice_word_cap=notice_word_cap,
     )
 
+    sources_list = [str(s).strip() for s in (shared_evidence_sources or []) if str(s).strip()]
+    sources_str = ", ".join(sources_list)
+    used_shared_evidence_grounding = False
+
     if file_context:
         authorized_agents = file_context.get("authorized_agents")
         file_name = file_context.get("file_name", "unknown")
@@ -263,9 +259,9 @@ def build_llm_messages(
                 exclude_agent_key=agent_key,
             )
             hint = (
-                f"Recommended agent: {rec_username} — or grant access via '/grant_skill'."
+                f"Recommended agent: {rec_username}."
                 if rec_username
-                else "Grant access via '/grant_skill'."
+                else "No authorized agent available."
             )
             file_block = render_prompt_template(
                 "turn_directives",
@@ -277,22 +273,32 @@ def build_llm_messages(
                 downstream_file_clause=downstream_file_clause,
             )
         elif not has_skill:
-            hint = build_skill_resolution_hint(
-                required_skill,
-                channel_id=channel_id,
-                thread_ts=thread_ts,
-                exclude_agent_key=agent_key,
-            )
-            file_block = render_prompt_template(
-                "turn_directives",
-                "file_access_missing_skill_notice",
-                file_name=file_name,
-                agent_display=agent_display,
-                required_skill=required_skill,
-                notice_word_cap=notice_word_cap,
-                hint=hint,
-                downstream_file_clause=downstream_file_clause,
-            )
+            if sources_str:
+                file_block = render_prompt_template(
+                    "turn_directives",
+                    "shared_evidence_grounding_notice",
+                    agent_display=agent_display,
+                    required_skill=required_skill or "file",
+                    source_agents=sources_str,
+                )
+                used_shared_evidence_grounding = True
+            else:
+                hint = build_skill_resolution_hint(
+                    required_skill,
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    exclude_agent_key=agent_key,
+                )
+                file_block = render_prompt_template(
+                    "turn_directives",
+                    "file_access_missing_skill_notice",
+                    file_name=file_name,
+                    agent_display=agent_display,
+                    required_skill=required_skill,
+                    notice_word_cap=notice_word_cap,
+                    hint=hint,
+                    downstream_file_clause=downstream_file_clause,
+                )
         else:
             from core.security_utils import wrap_untrusted_content
 
@@ -311,22 +317,33 @@ def build_llm_messages(
         if file_block and required_skill and required_skill in missing:
             missing = [s for s in missing if s != required_skill]
         if missing:
-            missing_str = ", ".join(f"'{s}'" for s in missing)
-            hint = build_skill_resolution_hint(
-                missing,
-                channel_id=channel_id,
-                thread_ts=thread_ts,
-                exclude_agent_key=agent_key,
-            )
-            skill_notice_block = render_prompt_template(
-                "turn_directives",
-                "skill_missing_notice",
-                missing_str=missing_str,
-                agent_display=agent_display,
-                notice_word_cap=notice_word_cap,
-                hint=hint,
-                downstream_skill_clause=downstream_skill_clause,
-            )
+            if sources_str:
+                if not used_shared_evidence_grounding:
+                    skill_notice_block = render_prompt_template(
+                        "turn_directives",
+                        "shared_evidence_grounding_notice",
+                        agent_display=agent_display,
+                        required_skill=", ".join(missing),
+                        source_agents=sources_str,
+                    )
+                    used_shared_evidence_grounding = True
+            else:
+                missing_str = ", ".join(f"'{s}'" for s in missing)
+                hint = build_skill_resolution_hint(
+                    missing,
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    exclude_agent_key=agent_key,
+                )
+                skill_notice_block = render_prompt_template(
+                    "turn_directives",
+                    "skill_missing_notice",
+                    missing_str=missing_str,
+                    agent_display=agent_display,
+                    notice_word_cap=notice_word_cap,
+                    hint=hint,
+                    downstream_skill_clause=downstream_skill_clause,
+                )
 
     # Dynamic orchestration directive
     orchestration_block = ""
@@ -358,9 +375,9 @@ def build_llm_messages(
 
     has_permission_restriction = bool(
         (file_block and ("RESTRICTED" in file_block or "MISSING SKILL" in file_block))
-        or skill_notice_block
+        or (skill_notice_block and "PERMISSION RESTRICTED" in skill_notice_block)
     )
-    has_skill_context = bool(file_block or required_skills)
+    has_skill_context = bool(file_block or required_skills or used_shared_evidence_grounding)
     anti_echo_directive = ""
     if has_permission_restriction:
         anti_echo_directive = render_prompt_template(

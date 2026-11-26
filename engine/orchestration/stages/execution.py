@@ -129,7 +129,6 @@ class ExecutionStage:
         ctx.authorized_skills = list(agent_skills or [])
 
         if getattr(ctx, "is_pure_skill_task", False):
-            from core.models import resolve_active_max_words
             from nlp.message_builder import (
                 build_deterministic_missing_skill_notice,
                 has_prior_verified_skill_output,
@@ -159,16 +158,12 @@ class ExecutionStage:
                     getattr(ctx, "shared_round_evidence", None),
                     getattr(ctx, "effective_history", None),
                 )
-                active_max_words = resolve_active_max_words(
-                    getattr(ctx, "modifiers", None),
-                    thread_state_manager.get_max_words(ctx.input.channel_id, ctx.input.thread_ts),
-                )
 
-                if not prior_verified or (active_max_words is not None and active_max_words < 60):
+                if not prior_verified or unauthorized_file:
                     logger.info(
                         f"[LLM] Short-circuiting pure-skill missing-skill turn for {ctx.agent_key} "
                         f"(missing={missing_skills}, unauthorized_file={unauthorized_file}, "
-                        f"max_words={active_max_words}, prior_verified={prior_verified})."
+                        f"prior_verified={prior_verified})."
                     )
                     ctx.output.final_text = build_deterministic_missing_skill_notice(
                         missing_skills=missing_skills,

@@ -307,9 +307,15 @@ class ContextPrepStage:
 
         # Record passively injected file skill and verified evidence if agent is authorized and has the skill
         exclude_evidence_files: set[str] | None = None
+        is_agent_auth = True
+        has_file_skill = False
+        is_valid_content = False
+        file_req_skill: str | None = None
+        file_name_for_ctx: str | None = None
         if ctx.file_context:
             auth_agents = ctx.file_context.get("authorized_agents")
             is_agent_auth = auth_agents is None or ctx.agent_key in auth_agents
+            file_name_for_ctx = ctx.file_context.get("file_name", "unknown")
             file_req_skill = ctx.file_context.get("required_skill")
             if not file_req_skill:
                 file_skill_def = skill_registry.get_file_handler_skill()
@@ -318,10 +324,13 @@ class ContextPrepStage:
             file_content = str(ctx.file_context.get("content", ""))
             is_valid_content = bool(file_content) and not file_content.startswith(("[Error", "[No attached file"))
 
-            if is_agent_auth and has_file_skill and is_valid_content:
+            if not is_agent_auth and file_name_for_ctx:
+                # Enforce explicit tag-based ACL: never leak tag-restricted file content via shared evidence
+                exclude_evidence_files = {file_name_for_ctx}
+            elif is_agent_auth and has_file_skill and is_valid_content:
                 if file_req_skill not in ctx.output.skills_used:
                     ctx.output.skills_used.append(file_req_skill)
-                file_name = ctx.file_context.get("file_name", "unknown")
+                file_name = file_name_for_ctx or "unknown"
                 file_size = ctx.file_context.get("size", len(file_content))
                 # Persist the FULL document payload (not just a metadata stub) so the InternalRevisor
                 # and later turns/rounds retain ground truth after file_context is cleared.
@@ -367,6 +376,42 @@ class ContextPrepStage:
             ctx.input.thread_ts,
             exclude_file_names=exclude_evidence_files,
         )
+
+        # Resolve source agent usernames when shared round evidence covers a missing skill
+        shared_evidence_sources: list[str] = []
+        if ctx.shared_round_evidence and str(ctx.shared_round_evidence).strip():
+            target_file_for_match = (
+                file_name_for_ctx
+                if (ctx.file_context and is_agent_auth and not has_file_skill and is_valid_content)
+                else None
+            )
+            missing_tool_names: set[str] = set()
+            for m_skill in ctx.missing_required_skills:
+                if ctx.file_context and not is_agent_auth and m_skill == file_req_skill:
+                    continue
+                missing_tool_names.add(m_skill)
+                s_def = skill_registry.get(m_skill)
+                if s_def and getattr(s_def, "tools", None):
+                    missing_tool_names.update(s_def.tools)
+
+            if target_file_for_match or missing_tool_names:
+                raw_source_keys = thread_state_manager.get_shared_evidence_source_agents(
+                    ctx.input.channel_id,
+                    ctx.input.thread_ts,
+                    file_name=target_file_for_match,
+                    tool_names=missing_tool_names,
+                    exclude_file_names=exclude_evidence_files,
+                )
+                seen_sources: set[str] = set()
+                for src_key in raw_source_keys:
+                    if not src_key or src_key == ctx.agent_key:
+                        continue
+                    ag_cfg = settings_manager.get_agent(src_key) or AGENTS_CONFIG.get(src_key) or {}
+                    src_name = str(ag_cfg.get("username") or src_key).strip()
+                    if src_name and src_name not in seen_sources:
+                        seen_sources.add(src_name)
+                        shared_evidence_sources.append(src_name)
+        ctx.shared_evidence_source_agents = shared_evidence_sources
 
         active_prompt = ctx.prompt
         if ctx.input.is_bot_trigger:
@@ -420,6 +465,7 @@ class ContextPrepStage:
             required_skills=required_skills,
             episodic_summary=ctx.episodic_summary,
             shared_round_evidence=ctx.shared_round_evidence,
+            shared_evidence_sources=ctx.shared_evidence_source_agents,
             channel_id=ctx.input.channel_id,
             thread_ts=ctx.input.thread_ts,
             max_words=active_max_words,

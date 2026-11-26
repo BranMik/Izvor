@@ -222,8 +222,9 @@ def test_build_llm_messages_file_context_missing_skill_notice():
     assert "--- [FILE ACCESS RESTRICTED: MISSING SKILL] ---" in user_turn
     assert "document_reader" in user_turn
     assert "at most 50 words" in user_turn
-    assert "/grant_skill" in user_turn
-    assert "Recommended agent for 'document_reader':" in user_turn
+    assert "Recommended agent:" in user_turn
+    assert "Do NOT mention the file or document name." in user_turn
+    assert "Do NOT mention '/grant_skill'" in user_turn
     assert "recommend ONLY this 1 agent by name, never by agent ID" in user_turn
     assert "agent-10006" not in user_turn
     assert "agent-10008" not in user_turn
@@ -260,12 +261,13 @@ def test_build_llm_messages_required_skills_missing_notice():
     assert "--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---" in user_turn
     assert "document_authoring" in user_turn
     assert "at most 50 words" in user_turn
-    assert "/grant_skill" in user_turn
-    assert "Recommended agent for 'document_authoring':" in user_turn
+    assert "Recommended agent:" in user_turn
+    assert "Do NOT mention any file or document name." in user_turn
+    assert "Do NOT mention '/grant_skill'" in user_turn
     assert "recommend ONLY this 1 agent by name, never by agent ID" in user_turn
     assert "agent-10002" not in user_turn
     assert "agent-10006" not in user_turn
-    assert "Do NOT report that the file or resource was not found." in user_turn
+    assert "Do NOT report that the resource was not found." in user_turn
 
 
 def test_file_acl_restricted_recommends_single_agent_username_without_ids():
@@ -304,6 +306,8 @@ def test_file_acl_restricted_recommends_single_agent_username_without_ids():
         agent_key="agent-10001",
     )
     assert "Recommended agent:" in det_notice
+    assert "secret.pdf" not in det_notice
+    assert "/grant_skill" not in det_notice
     assert "agent-10006" not in det_notice
     assert "agent-10008" not in det_notice
     assert sum(1 for name in ("ROIStrategist", "SecurityArchitect") if name in det_notice) == 1
@@ -354,6 +358,112 @@ def test_build_llm_messages_missing_skill_respects_tight_max_words():
     assert "in at most 10 words" in user_turn
     assert "<= 10 words" in user_turn
     assert "50 words" not in user_turn
+
+
+def test_build_llm_messages_uses_shared_evidence_grounding_notice_when_source_available():
+    file_context = {
+        "file_name": "01_AI_Maturity_Assessment.pdf",
+        "content": "Zone: Operations...",
+        "size": 500,
+        "authorized_agents": None,
+        "required_skill": "document_reader",
+    }
+    msgs = build_llm_messages(
+        system_prompt="You are Visionary.",
+        effective_history=[{"role": "assistant", "content": "[Innovator]: Finance Zone.\n\nSkills used: [document_reader]"}],
+        prompt="Pick another zone and evaluate it.",
+        is_bot_trigger=True,
+        agent_key="agent-10001",
+        agent_cfg={"username": "Visionary", "skills": []},
+        file_context=file_context,
+        required_skills=["document_reader"],
+        shared_round_evidence="1. [Tool: document_reader | Agent: agent-10002]:\nZone: Operations...",
+        shared_evidence_sources=["Innovator"],
+        max_words=50,
+    )
+    user_turn = msgs[-1]["content"]
+    assert "--- [SHARED ROUND EVIDENCE AVAILABLE] ---" in user_turn
+    assert "extracted by Innovator" in user_turn
+    assert "FILE ACCESS RESTRICTED: MISSING SKILL" not in user_turn
+    assert "PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)" not in user_turn
+    assert "/grant_skill" not in user_turn
+
+
+@pytest.mark.anyio
+async def test_context_prep_populates_shared_evidence_sources_and_respects_explicit_tag_acl():
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+
+    channel_id = "C_CTX_SHARED_EVIDENCE"
+    thread_ts = "1700000000.7777"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    try:
+        thread_state_manager.add_round_evidence(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            tool_name="document_reader",
+            arguments={"file": "01_AI_Maturity_Assessment.pdf"},
+            result='{"status": "success", "document": "01_AI_Maturity_Assessment.pdf", "content": "Operations Zone text"}',
+            agent_key="agent-10002",
+        )
+        pipeline = TurnPipeline()
+
+        # 1. Open file_context (authorized_agents=None): unauthorized agent gets shared evidence + source attribution
+        thread_state_manager.set_file_context(
+            channel_id,
+            thread_ts,
+            {
+                "file_name": "01_AI_Maturity_Assessment.pdf",
+                "content": "Operations Zone text",
+                "size": 20,
+                "authorized_agents": None,
+                "required_skill": "document_reader",
+            },
+        )
+        ctx_open = TurnContext(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text="Evaluate another Zone.",
+            is_bot_trigger=True,
+            agent_key="agent-10001",
+            agent_cfg={"username": "Visionary", "skills": [], "model": "gemini/gemini-3.8-flash"},
+            in_memory_history=[{"role": "assistant", "content": "[Innovator]: Finance"}],
+        )
+        with patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"):
+            await pipeline.context_prep_stage.stage_prepare_context(ctx_open)
+
+        assert ctx_open.shared_round_evidence is not None
+        assert "Operations Zone text" in ctx_open.shared_round_evidence
+        assert ctx_open.shared_evidence_source_agents == ["Innovator"]
+
+        # 2. Explicit tag ACL excluding agent-10001: file is withheld from shared_round_evidence and source list is empty
+        thread_state_manager.set_file_context(
+            channel_id,
+            thread_ts,
+            {
+                "file_name": "01_AI_Maturity_Assessment.pdf",
+                "content": "Operations Zone text",
+                "size": 20,
+                "authorized_agents": {"agent-10002"},
+                "required_skill": "document_reader",
+            },
+        )
+        ctx_acl = TurnContext(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text="Evaluate another Zone.",
+            is_bot_trigger=True,
+            agent_key="agent-10001",
+            agent_cfg={"username": "Visionary", "skills": [], "model": "gemini/gemini-3.8-flash"},
+            in_memory_history=[{"role": "assistant", "content": "[Innovator]: Finance"}],
+        )
+        with patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"):
+            await pipeline.context_prep_stage.stage_prepare_context(ctx_acl)
+
+        assert not ctx_acl.shared_round_evidence
+        assert ctx_acl.shared_evidence_source_agents == []
+    finally:
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)
 
 
 @pytest.mark.anyio

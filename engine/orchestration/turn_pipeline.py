@@ -178,6 +178,7 @@ class TurnContext:
     # Observability & Evidence
     episodic_summary: str | None
     shared_round_evidence: str
+    shared_evidence_source_agents: list[str]
     authorized_skills: list[str]
     token_recorder: Any
     session_id: str
@@ -304,6 +305,7 @@ class TurnContext:
         self.icon_url: str | None = kwargs.get("icon_url", self.input.icon_url)
         self.episodic_summary: str | None = kwargs.get("episodic_summary")
         self.shared_round_evidence: str = kwargs.get("shared_round_evidence", "")
+        self.shared_evidence_source_agents: list[str] = list(kwargs.get("shared_evidence_source_agents", []))
         self.authorized_skills: list[str] = list(kwargs.get("authorized_skills", []))
         self.token_recorder: Any = kwargs.get("token_recorder")
 

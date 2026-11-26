@@ -131,14 +131,14 @@ async def test_fail_closed_tool_authorization():
         "read_document", {"file_path": "confidential.txt"}
     )
     data_none = json.loads(res_none)
-    assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in data_none["error"]
+    assert "Permission denied: Agent lacks tool 'read_document'" in data_none["error"]
 
     # Calling with empty list must fail closed
     res_empty = await skill_registry.execute_tool_async(
         "read_document", {"file_path": "confidential.txt"}, authorized_skills=[]
     )
     data_empty = json.loads(res_empty)
-    assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in data_empty["error"]
+    assert "Permission denied: Agent lacks tool 'read_document'" in data_empty["error"]
 
     # Calling with internal sentinel allows execution
     with patch("skills.registry.execute_local_tool", new_callable=AsyncMock, return_value=json.dumps({"contents": "unrestricted"})):
@@ -150,7 +150,7 @@ async def test_fail_closed_tool_authorization():
     # Calling load_skill with None fails closed
     load_none = await skill_registry.execute_tool_async("load_skill", {"skill_name": "web_research"})
     data_load = json.loads(load_none)
-    assert "Permission denied: Agent is not authorized to load skill 'web_research'" in data_load["error"]
+    assert "Permission denied: Agent lacks 'web_research'" in data_load["error"]
 
 
 # ---------------------------------------------------------------------------
