@@ -212,30 +212,29 @@ def test_basic_auth_throttling_on_failures():
     from fastapi import HTTPException
     from fastapi.security import HTTPBasicCredentials
     from starlette.requests import Request
+    import core.config as core_cfg
     from services.rate_limiter import ip_rate_limiter
     from api.dependencies import verify_admin_basic_auth
 
     ip_rate_limiter.reset()
-    bad_creds = HTTPBasicCredentials(username="malicious_actor", password="wrong_password")
-    mock_request = Request(scope={"type": "http", "client": ("198.51.100.1", 12345), "headers": []})
-
-    # 5 attempts fail with 401
-    for _ in range(5):
-        with pytest.raises(HTTPException) as exc_info:
-            verify_admin_basic_auth(mock_request, bad_creds)
-        assert exc_info.value.status_code == 401
-
-    # 6th attempt exceeds burst limit, fails with 429 Too Many Requests
-    with pytest.raises(HTTPException) as exc_info:
-        verify_admin_basic_auth(mock_request, bad_creds)
-    assert exc_info.value.status_code == 429
-    assert "Too many failed authentication attempts" in exc_info.value.detail
-
-    # TKT-1203: Even VALID credentials must be rejected with 429 during active lockout
-    import core.config as core_cfg
-
     core_cfg.set_admin_credentials_override("testadmin", "testpass")
     try:
+        bad_creds = HTTPBasicCredentials(username="malicious_actor", password="wrong_password")
+        mock_request = Request(scope={"type": "http", "client": ("198.51.100.1", 12345), "headers": []})
+
+        # 5 attempts fail with 401
+        for _ in range(5):
+            with pytest.raises(HTTPException) as exc_info:
+                verify_admin_basic_auth(mock_request, bad_creds)
+            assert exc_info.value.status_code == 401
+
+        # 6th attempt exceeds burst limit, fails with 429 Too Many Requests
+        with pytest.raises(HTTPException) as exc_info:
+            verify_admin_basic_auth(mock_request, bad_creds)
+        assert exc_info.value.status_code == 429
+        assert "Too many failed authentication attempts" in exc_info.value.detail
+
+        # TKT-1203: Even VALID credentials must be rejected with 429 during active lockout
         good_creds = HTTPBasicCredentials(username="testadmin", password="testpass")
         with pytest.raises(HTTPException) as exc_info_valid:
             verify_admin_basic_auth(mock_request, good_creds)

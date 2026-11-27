@@ -55,12 +55,30 @@ def test_api_endpoints_reject_unauthenticated(client):
 
 def test_api_endpoints_reject_invalid_credentials(client):
     """Admin /api/* endpoints must return 401 on wrong username or password."""
-    bad_creds = base64.b64encode(b"wrong_user:wrong_pass").decode("ascii")
-    headers = {"Authorization": f"Basic {bad_creds}"}
+    config.set_admin_credentials_override("testadmin", "secret123")
+    try:
+        bad_creds = base64.b64encode(b"wrong_user:wrong_pass").decode("ascii")
+        headers = {"Authorization": f"Basic {bad_creds}"}
 
-    r = client.get("/api/skills", headers=headers)
-    assert r.status_code == 401
-    assert r.json()["detail"] == "Incorrect username or password"
+        r = client.get("/api/skills", headers=headers)
+        assert r.status_code == 401
+        assert r.json()["detail"] == "Incorrect username or password"
+    finally:
+        config.set_admin_credentials_override(None, None)
+
+
+def test_api_endpoints_fail_closed_500_when_admin_password_unconfigured(client):
+    """Admin /api/* endpoints must fail closed with 500 when ADMIN_PASSWORD is not configured."""
+    config.set_admin_credentials_override("testadmin", "")
+    try:
+        creds = base64.b64encode(b"testadmin:any_pass").decode("ascii")
+        headers = {"Authorization": f"Basic {creds}"}
+
+        r = client.get("/api/skills", headers=headers)
+        assert r.status_code == 500
+        assert r.json()["detail"] == "Admin authentication is not configured on the server"
+    finally:
+        config.set_admin_credentials_override(None, None)
 
 
 def test_api_endpoints_accept_valid_credentials(client):

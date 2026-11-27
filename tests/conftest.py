@@ -694,6 +694,7 @@ def reset_router_and_llm_di_for_tests():
         configure_token,
         reset_report_timezone,
         reset_token,
+        set_admin_credentials_override,
         set_admin_slack_user_ids_override,
         set_internal_revisor_enabled_override,
     )
@@ -722,8 +723,9 @@ def reset_router_and_llm_di_for_tests():
     clear_feed_cache()
     configure_feed_fetcher(_noop_feed_fetcher)
 
-    # Hard-isolate Slack credentials, async client, caches, and report timezone for every test
+    # Hard-isolate Slack credentials, admin credentials, async client, caches, and report timezone for every test
     configure_token("")
+    set_admin_credentials_override("admin", "")
     configure_slack_async_client(_UnmockedSlackClientGuard())
     reset_slack_caches()
     reset_report_timezone()
@@ -736,6 +738,7 @@ def reset_router_and_llm_di_for_tests():
     yield
 
     set_internal_revisor_enabled_override(None)
+    set_admin_credentials_override(None, None)
     set_admin_slack_user_ids_override(None)
     reset_report_timezone()
     reset_token()
