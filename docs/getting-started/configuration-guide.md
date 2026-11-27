@@ -514,7 +514,7 @@ Under `"rag"` in [`config/settings/system_settings.json`](file:///config/setting
 | `guardrail_threshold` | `0.85` | Cosine similarity threshold for prompt-injection guardrail checks. |
 
 Top-level P2/P3 guardrail, PII NER, audit keyring, and retention keys configurable in `system_settings.json` (with `SystemSettingsModel` defaults):
-- `guardrail_chunk_chars` (`800`), `guardrail_chunk_overlap_chars` (`200`), `guardrail_max_chunks` (`8`), `guardrail_indirect_embedding_enabled` (`false`), `pii_ner_models` (`["en_core_web_sm"]`), `audit_hmac_key_id` (`"default"`), `skill_exclusions_sync_interval_seconds` (`86400.0`).
+- `guardrail_chunk_chars` (`800`), `guardrail_chunk_overlap_chars` (`200`), `guardrail_max_chunks` (`8`), `guardrail_indirect_embedding_enabled` (`false`), `pii_ner_models` (`["en_core_web_md"]` — if changed, also update the spaCy model wheel in [`pyproject.toml`](file:///pyproject.toml) / [`requirements.txt`](file:///requirements.txt) and install the model), `audit_hmac_key_id` (`"default"`), `skill_exclusions_sync_interval_seconds` (`86400.0`).
 - **Scheduled Retention (`retention_*`):** `retention_checkpoints_days` (`7`), `retention_traces_days` (`30`), `retention_event_dedup_days` (`1`), `retention_expired_grace_days` (`7`), `retention_thread_sessions_days` (`90`), `retention_downloads_hours` (`24`), `retention_audit_anchors_compact_enabled` (`true`), `retention_prune_interval_seconds` (`86400.0`), plus opt-in archive windows defaulting to `0` (disabled): `retention_spend_ledger_days` (`0`) and `retention_flat_histories_days` (`0`).
 - **Full `system_settings.json` Reference:** See the complete top-level and nested (`web_security`, `security_burst_limits`, `dialectical_stress_test`) parameter tables in [installation.md](installation.md#system-settings-configsettingssystem_settingsjson).
 
@@ -537,6 +537,7 @@ Top-level P2/P3 guardrail, PII NER, audit keyring, and retention keys configurab
 ### 7.2 Adding Files & Security Constraints
 
 - **Adding reference files:** Place `.txt`, `.md`, `.csv`, `.json`, `.yaml`, `.pdf`, or other UTF-8 files directly inside `agents_resources/` (or subfolders like `agents_resources/reports/`). Agents pass relative paths such as `"sys_spec.txt"` or `"reports/q4.pdf"`.
+- **Overwrite vs. Append (`write_document`):** `write_document(rel_path, content, mode="overwrite")` supports both `mode="overwrite"` (default, atomic full-file write) and `mode="append"` (preserves existing content and appends cleanly on a newline boundary, creating the file if missing, while still enforcing `max_write_bytes` on the combined output).
 - **Size & path limits** (configured in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json)):
   - `max_file_size_mb`: `50.0` (files larger than 50 MB are rejected by `read_document`).
   - `max_write_bytes`: `1048576` (1 MB cap on `write_document`).

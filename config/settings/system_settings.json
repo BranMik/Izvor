@@ -16,6 +16,10 @@
   "_comment_workspace_write_blacklist_additional": "Automatic hardcoded protection blocks writes to .env, .git, config/settings/agent_settings.json, data/state/app_settings.json, and config/settings/system_settings.json. Add any additional relative workspace paths or file patterns here to prevent unauthorized modifications.",
   "workspace_write_blacklist_additional": [],
   "strict_privacy_mode_enabled": true,
+  "_comment_pii_ner_models": "List of installed spaCy NER models used by Presidio. If you change this value, also update the spaCy model wheel in pyproject.toml (and requirements.txt) and install the model.",
+  "pii_ner_models": [
+    "en_core_web_md"
+  ],
   "log_level": "INFO",
   "internal_revisor_enabled": true,
   "shared_evidence_max_chars": 40000,

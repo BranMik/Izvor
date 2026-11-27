@@ -430,7 +430,7 @@ Every skill in Izvor is defined by a `SKILL.md` file with mandatory YAML frontma
 | Skill Name | Scope | Slash Triggers | Requires Admin | Requires HITL | Bound Tools & Capabilities |
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | [`document_reader`](../../config/skills/document_reader/SKILL.md) | `agent` | `/read_file`, `/read-file`, `/file`, `/attachment`, `/document_reader` | No | No | `list_documents`, `read_document` (sandboxed to `agents_resources/`, supports TXT/MD/PDF via `pypdf`, enforces per-file `authorized_agents` ACLs, `handles_files: true`). |
-| [`document_authoring`](../../config/skills/document_authoring/SKILL.md) | `agent` | `/document_authoring`, `/authoring`, `/write_doc` | No | **Yes** | `write_document` (sandboxed to `agents_resources/`, blocks protected paths & >1MB writes, requires Slack HITL approval). |
+| [`document_authoring`](../../config/skills/document_authoring/SKILL.md) | `agent` | `/document_authoring`, `/authoring`, `/write_document`, `/document_writer` | No | **Yes** | `write_document` (supports `mode="overwrite"` and `mode="append"`, sandboxed to `agents_resources/`, blocks protected paths & >1MB writes, requires Slack HITL approval). |
 | [`knowledge_base_rag`](../../config/skills/knowledge_base_rag/SKILL.md) | `agent` | `/rag`, `/search_docs`, `/knowledge` | No | No | `search_knowledge_rag` ([tools.py](../../config/skills/knowledge_base_rag/tools.py)) — queries `RAGService` across `scope="all"` (shared + agent knowledge) or `scope="self"`. |
 | [`web_research`](../../config/skills/web_research/SKILL.md) | `agent` | `/web_research`, `/webresearch` | No | No | `web_search` (multi-engine `ddgs` scraper) and `fetch_web_page` (DNS-pinned, SSRF/Slowloris-guarded HTTPX scraper, max 5 fetches/turn). |
 

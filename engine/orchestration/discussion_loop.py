@@ -174,19 +174,18 @@ class DiscussionLoop:
                             "content": f"[System Notification — Internal Revisor Warning]: {turn_res['revisor_warning']}",
                         }
                     )
+                    try:
+                        from services.flat_history_recorder import async_record_flat_history
 
-                try:
-                    from services.flat_history_recorder import async_record_flat_history
-
-                    init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
-                    await async_record_flat_history(
-                        channel_id=channel_id,
-                        thread_ts=thread_ts,
-                        initial_prompt=init_p,
-                        messages=accumulated_history,
-                    )
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"[ORCHESTRATOR] Flat history sync exception: {e}")
+                        init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
+                        await async_record_flat_history(
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                            initial_prompt=init_p,
+                            messages=accumulated_history,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug(f"[ORCHESTRATOR] Flat history sync exception: {e}")
 
                 if turn_res.get("clarification_question"):
                     logger.info(

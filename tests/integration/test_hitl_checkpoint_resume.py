@@ -658,3 +658,114 @@ async def test_graceful_shutdown_cancel_releases_checkpoint_claim_and_superseded
     assert res.get("reason") == "superseded"
 
 
+@pytest.mark.anyio
+async def test_checkpoint_remasking_preserves_provider_thought_signature_and_word_boundaries():
+    """Plan 227: Field-scoped word-boundary remasking preserves Base64 thought_signature and avoids mid-word corruption."""
+    from orchestration.protocols import PipelineDeps
+    from orchestration.stages.tool_loop_runner import ToolLoopRunner
+
+    ch = "C_CHK_REMASK"
+    ts = "99999.0030"
+    thread_state_manager.clear_state(ch, ts)
+
+    sig_gemini = "Eu4SCusSAVjVB3tJD99wiT8erCSEao/r6XYMst6/JDjayzA85=="
+    sig_anthropic = "Ev4PCvsPAVjVB3tJDxyz123456=="
+
+    ctx = TurnContext(channel_id=ch, thread_ts=ts, raw_text="Lead Generation for JD")
+    ctx.agent_key = "agent-10014"
+    ctx.agent_cfg = {"model": "gemini/gemini-3.8-flash", "skills": []}
+    ctx.turn_token_mapping = {"<LOCATION_0>": "JD", "<PERSON_1>": "Lead Gen"}
+    ctx.messages = [
+        {"role": "system", "content": "System prompt mentioning Lead Gen and JD"},
+        {"role": "user", "content": "Lead Generation review for JD"},
+        {
+            "role": "assistant",
+            "content": None,
+            "provider_specific_fields": {"thought_signature": sig_gemini},
+            "thinking_blocks": [{"type": "thinking", "thinking": "Lead Gen notes", "signature": sig_anthropic}],
+            "tool_calls": [
+                {
+                    "id": "call_JD_1",
+                    "type": "function",
+                    "function": {
+                        "name": "write_document",
+                        "arguments": json.dumps({"rel_path": "out.md", "content": "Lead Generation and JD"}),
+                    },
+                    "provider_specific_fields": {"thought_signature": sig_gemini},
+                }
+            ],
+        },
+    ]
+
+    runner = ToolLoopRunner(PipelineDeps())
+    chk_id = runner.save_execution_checkpoint(
+        ctx=ctx,
+        pause_reason="hitl",
+        pending_tool_call={"id": "call_JD_1", "name": "write_document", "args": {"content": "Lead Generation and JD"}},
+    )
+    saved = turn_checkpoint_store.get_checkpoint(chk_id)
+    assert saved is not None
+
+    # System message untouched
+    assert saved.messages[0]["content"] == "System prompt mentioning Lead Gen and JD"
+    # Word boundaries: 'Lead Generation' preserved, standalone 'JD' remasked
+    assert saved.messages[1]["content"] == "Lead Generation review for <LOCATION_0>"
+    # Opaque provider signatures & tool call IDs byte-for-byte untouched
+    asst_msg = saved.messages[2]
+    assert asst_msg["provider_specific_fields"]["thought_signature"] == sig_gemini
+    assert asst_msg["thinking_blocks"][0]["signature"] == sig_anthropic
+    assert asst_msg["tool_calls"][0]["id"] == "call_JD_1"
+    assert asst_msg["tool_calls"][0]["provider_specific_fields"]["thought_signature"] == sig_gemini
+    assert "Lead Generation and <LOCATION_0>" in asst_msg["tool_calls"][0]["function"]["arguments"]
+    assert "<PERSON_1>eration" not in asst_msg["tool_calls"][0]["function"]["arguments"]
+    # Pending tool call remasks args only
+    assert saved.pending_tool_call["id"] == "call_JD_1"
+    assert saved.pending_tool_call["args"]["content"] == "Lead Generation and <LOCATION_0>"
+
+    turn_checkpoint_store.mark_abandoned(chk_id)
+    thread_state_manager.cleanup_thread(ch, ts)
+
+
+@pytest.mark.anyio
+async def test_cancelled_turn_cleans_up_intermediate_hourglass_message():
+    """Plan 227: Cancelling an in-flight turn updates any posted intermediate hourglass message in Slack."""
+    import asyncio
+    from tests.e2e.workspace_adapter import InMemoryWorkspaceAdapter
+
+    ch = "C_CANCEL_HOURGLASS"
+    ts = "99999.0031"
+    thread_state_manager.clear_state(ch, ts)
+
+    ws = InMemoryWorkspaceAdapter()
+    started = asyncio.Event()
+
+    async def _slow_llm(*args, **kwargs):
+        ctx_msg = await ws.post_agent_turn(channel_id=ch, thread_ts=ts, text="_⏳ *Tactician* is analyzing data..._", username="Tactician")
+        ctx.intermediate_msg_ts = ctx_msg["ts"]
+        started.set()
+        await asyncio.sleep(30)
+
+    pipeline = TurnPipeline(
+        llm_executor=_slow_llm,
+        workspace_adapter=ws,
+        history_fetcher=AsyncMock(return_value=[]),
+        files_fetcher=AsyncMock(return_value=[]),
+        notes_updater=lambda **kw: None,
+        usage_updater=lambda **kw: None,
+        flat_history_recorder=lambda **kw: None,
+    )
+    ctx = TurnContext(channel_id=ch, thread_ts=ts, raw_text="Analyze", is_bot_trigger=True, target_agent_override="agent-10014")
+
+    task = asyncio.create_task(pipeline.run(ctx))
+    await started.wait()
+    thread_state_manager.request_stop(ch, ts)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # Allow scheduled cleanup task to run
+    await asyncio.sleep(0.05)
+    assert any(u["text"] == "_⏹️ Stopped._" and u["message_ts"] == ctx.intermediate_msg_ts for u in ws.updated_turns)
+    thread_state_manager.cleanup_thread(ch, ts)
+
+

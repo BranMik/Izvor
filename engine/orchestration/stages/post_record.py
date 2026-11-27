@@ -390,24 +390,28 @@ class PostRecordStage:
 
             footer_parts.append(format_model_fallback_footer(fallback_from, agent_model))
 
-        if agent_model:
-            token_footer = f"{{{agent_model} : {ctx.output.total_prompt_tokens}/{ctx.output.total_completion_tokens}}}"
-        else:
-            token_footer = (
-                f"{{{ctx.output.total_prompt_tokens}/{ctx.output.total_completion_tokens}}}"
-            )
-        footer_parts.append(token_footer)
+        waiting_hitl = bool(getattr(ctx.output, "waiting_hitl", False))
+        if not waiting_hitl:
+            if agent_model:
+                token_footer = f"{{{agent_model} : {ctx.output.total_prompt_tokens}/{ctx.output.total_completion_tokens}}}"
+            else:
+                token_footer = (
+                    f"{{{ctx.output.total_prompt_tokens}/{ctx.output.total_completion_tokens}}}"
+                )
+            footer_parts.append(token_footer)
 
-        ctx.output.final_text = f"{ctx.output.final_text}\n\n" + "\n\n".join(footer_parts)
+        if footer_parts:
+            ctx.output.final_text = f"{ctx.output.final_text}\n\n" + "\n\n".join(footer_parts)
         ctx.output.generated_tags = resolved_tags
         logger.info(
             f"[ROUTER] Agent {ctx.agent_key} generated tag(s): {ctx.output.generated_tags}. Full text length: {len(ctx.output.final_text)}"
         )
 
-        pacing_secs = getattr(self.deps, "debate_turn_pacing_seconds", None)
-        if pacing_secs is None:
-            pacing_secs = get_debate_turn_pacing_seconds()
-        await self._sleep(pacing_secs)
+        if not waiting_hitl:
+            pacing_secs = getattr(self.deps, "debate_turn_pacing_seconds", None)
+            if pacing_secs is None:
+                pacing_secs = get_debate_turn_pacing_seconds()
+            await self._sleep(pacing_secs)
 
         if ctx.is_superseded():
             logger.info(
@@ -461,6 +465,9 @@ class PostRecordStage:
                 posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
             else:
                 posted_ts = ctx.intermediate_msg_ts
+        elif waiting_hitl:
+            slack_res = {"ok": True, "ts": None}
+            posted_ts = None
         else:
             logger.info(
                 f"[WORKSPACE] Posting agent response to channel {ctx.input.channel_id}, thread_ts {ctx.input.thread_ts} as {resolved_username} (icon: {resolved_turn_icon})"
@@ -481,12 +488,14 @@ class PostRecordStage:
             ctx.output.final_text = str(
                 slack_res.get("delivered_text") or "⚠️ *Message blocked by security policy.*"
             )
-        logger.info(f"[WORKSPACE] Successfully posted message! Received ts: {posted_ts}")
+        if posted_ts is not None or not waiting_hitl:
+            logger.info(f"[WORKSPACE] Successfully posted message! Received ts: {posted_ts}")
 
-        pause_secs = getattr(self.deps, "slack_post_pause_seconds", None)
-        if pause_secs is None:
-            pause_secs = get_slack_post_pause_seconds()
-        await self._sleep(pause_secs)
+        if not waiting_hitl:
+            pause_secs = getattr(self.deps, "slack_post_pause_seconds", None)
+            if pause_secs is None:
+                pause_secs = get_slack_post_pause_seconds()
+            await self._sleep(pause_secs)
 
         has_pending_retries = thread_state_manager.has_pending_retries(
             ctx.input.channel_id, ctx.input.thread_ts

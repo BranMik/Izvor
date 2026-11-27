@@ -633,13 +633,13 @@ class PIIMasker:
             if self._presidio_initialized:
                 return
             try:
-                from presidio_analyzer import AnalyzerEngine
+                from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
                 from presidio_analyzer.nlp_engine import NlpEngineProvider
                 import spacy.util
 
-                from config_store.system_settings import get_pii_ner_models
+                from config_store.system_settings import DEFAULT_PII_NER_MODELS, get_pii_ner_models
 
-                configured_models = get_pii_ner_models() or ["en_core_web_sm"]
+                configured_models = get_pii_ner_models() or list(DEFAULT_PII_NER_MODELS)
                 cache_key = tuple(str(m).strip() for m in configured_models if str(m).strip())
                 with _PRESIDIO_CACHE_LOCK:
                     cached = _PRESIDIO_ANALYZER_CACHE.get(cache_key)
@@ -702,7 +702,13 @@ class PIIMasker:
                 )
                 nlp_engine = provider.create_engine()
                 self._supported_languages = supported_languages
+                registry = RecognizerRegistry(supported_languages=supported_languages)
+                registry.load_predefined_recognizers(
+                    languages=supported_languages,
+                    nlp_engine=nlp_engine,
+                )
                 self._presidio_analyzer = AnalyzerEngine(
+                    registry=registry,
                     nlp_engine=nlp_engine,
                     supported_languages=supported_languages,
                 )
@@ -849,6 +855,12 @@ class PIIMasker:
 
                         # For named entities (PERSON, LOCATION), apply syntactic & semantic guards
                         if res.entity_type in ("PERSON", "LOCATION"):
+                            stripped = original_str.strip(" \t\n\r`'\".,;:!?()[]{}<>/")
+                            if len(stripped) <= 1 or (
+                                len(stripped) == 2 and stripped.isalpha() and stripped.isupper()
+                            ):
+                                continue
+
                             # 1. Require at least one uppercase letter (named entities must not be pure lowercase)
                             if not any(ch.isupper() for ch in original_str):
                                 continue

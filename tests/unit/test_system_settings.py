@@ -383,7 +383,7 @@ def test_system_settings_snapshot_and_p2_fields_persistence_and_clamping(tmp_pat
     assert mgr.get_guardrail_chunk_overlap_chars() == 200
     assert mgr.get_guardrail_max_chunks() == 8
     assert mgr.get_guardrail_indirect_embedding_enabled() is False
-    assert mgr.get_pii_ner_models() == ["en_core_web_sm"]
+    assert mgr.get_pii_ner_models() == ["en_core_web_md"]
     assert mgr.get_audit_hmac_key_id() == "default"
 
     # Mutate + persist
@@ -391,8 +391,12 @@ def test_system_settings_snapshot_and_p2_fields_persistence_and_clamping(tmp_pat
     mgr.set_guardrail_chunk_overlap_chars(150, save=False)
     mgr.set_guardrail_max_chunks(12, save=False)
     mgr.set_guardrail_indirect_embedding_enabled(True, save=False)
-    mgr.set_pii_ner_models(["en_core_web_sm", "fr_core_news_sm"], save=False)
+    mgr.set_pii_ner_models(["en_core_web_md", "fr_core_news_sm"], save=False)
     mgr.set_audit_hmac_key_id("key-2026-q4", save=True)
+
+    saved_raw = json.loads(sys_file.read_text(encoding="utf-8"))
+    assert "_comment_pii_ner_models" in saved_raw
+    assert "pyproject.toml" in saved_raw["_comment_pii_ner_models"]
 
     # Reload
     mgr2 = SystemSettingsManager(settings_file=sys_file, backup_file=sys_backup, auto_load=True)
@@ -400,7 +404,7 @@ def test_system_settings_snapshot_and_p2_fields_persistence_and_clamping(tmp_pat
     assert mgr2.get_guardrail_chunk_overlap_chars() == 150
     assert mgr2.get_guardrail_max_chunks() == 12
     assert mgr2.get_guardrail_indirect_embedding_enabled() is True
-    assert mgr2.get_pii_ner_models() == ["en_core_web_sm", "fr_core_news_sm"]
+    assert mgr2.get_pii_ner_models() == ["en_core_web_md", "fr_core_news_sm"]
     assert mgr2.get_audit_hmac_key_id() == "key-2026-q4"
 
     # Snapshot isolation (deep copy)
@@ -408,7 +412,7 @@ def test_system_settings_snapshot_and_p2_fields_persistence_and_clamping(tmp_pat
     snap.pii_ner_models.append("tampered_model")
     snap.audit_hmac_key_id = "tampered-key"
     fresh_snap = mgr2.get_snapshot()
-    assert fresh_snap.pii_ner_models == ["en_core_web_sm", "fr_core_news_sm"]
+    assert fresh_snap.pii_ner_models == ["en_core_web_md", "fr_core_news_sm"]
     assert fresh_snap.audit_hmac_key_id == "key-2026-q4"
 
 

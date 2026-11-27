@@ -184,8 +184,8 @@ async def test_hitl_denial_synthetic_tool_result():
 
 
 @pytest.mark.anyio
-async def test_tool_loop_pause_disables_tool_choice():
-    """TKT-1217: Execution stage omits tools and tool_choice when turn is paused."""
+async def test_tool_loop_pause_skips_followup_llm_call():
+    """Plan 227: Execution stage skips redundant follow-up LLM call when paused for HITL approval."""
     from orchestration.turn_pipeline import TurnPipeline
 
     mock_skill = MagicMock()
@@ -204,8 +204,6 @@ async def test_tool_loop_pause_disables_tool_choice():
         agent_cfg={"model": "gemini/gemini-3.8-flash", "skills": []},
     )
     ctx.agent_key = "Analyst"
-    ctx.output.waiting_hitl = True
-    ctx.output.halted = True
 
     # Initial response calling a tool
     mock_tool_call = MagicMock()
@@ -219,18 +217,11 @@ async def test_tool_loop_pause_disables_tool_choice():
     ]
     first_resp.usage = MagicMock(prompt_tokens=5, completion_tokens=5)
 
-    follow_up_resp = MagicMock()
-    follow_up_resp.choices = [
-        MagicMock(message=MagicMock(content="Paused for supervisor approval.", tool_calls=None))
-    ]
-    follow_up_resp.usage = MagicMock(prompt_tokens=5, completion_tokens=5)
-
     captured_kwargs = []
+
     async def mock_exec_fn(func, kwargs, **rest):
         captured_kwargs.append(kwargs)
-        if len(captured_kwargs) == 1:
-            return first_resp
-        return follow_up_resp
+        return first_resp
 
     pipeline = TurnPipeline(llm_executor=mock_exec_fn, skill_registry=mock_reg)
     stage = pipeline.execution_stage
@@ -240,11 +231,11 @@ async def test_tool_loop_pause_disables_tool_choice():
          patch("services.local_tools.is_agent_authorized_for_tool", return_value=True):
         await stage.stage_execute_llm(ctx)
 
-    # Follow-up call when paused must omit tools and tool_choice (never tool_choice='none' without tools)
-    assert len(captured_kwargs) >= 2
-    follow_up_call = captured_kwargs[1]
-    assert follow_up_call.get("tool_choice") is None
-    assert follow_up_call.get("tools") is None
+    # Only the initial LLM call runs; no follow-up LLM call is dispatched once HITL pauses
+    assert len(captured_kwargs) == 1
+    assert ctx.output.waiting_hitl is True
+    assert ctx.output.halted is True
+    assert "Waiting for human approval" in ctx.output.final_text
 
 
 @pytest.mark.anyio

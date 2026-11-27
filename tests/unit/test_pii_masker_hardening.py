@@ -275,13 +275,13 @@ def test_sentence_start_boundary_filtering():
     masked_clause, _ = masker.mask(text_clause)
     assert "Exclude" in masked_clause
 
-    # 4. Sentence starting with 'Grant Morrison' as a person name MUST be masked (grant_skill is not auto-detected)
+    # 4. Sentence starting with a person name MUST be masked (not exempted at sentence start)
     if masker._presidio_analyzer is not None:
-        text_grant = "Grant Morrison submitted the budget report yesterday."
-        masked_grant, map_grant = masker.mask(text_grant)
-        assert "Grant Morrison" not in masked_grant
-        assert "<PERSON_0>" in masked_grant
-        assert map_grant["<PERSON_0>"] == "Grant Morrison"
+        text_person = "John Morrison submitted the budget report yesterday."
+        masked_person, map_person = masker.mask(text_person)
+        assert "John Morrison" not in masked_person
+        assert "<PERSON_0>" in masked_person
+        assert map_person["<PERSON_0>"] == "John Morrison"
 
     # 5. Mid-sentence -> Grant and Max as person names ARE masked
     if masker._presidio_analyzer is not None:
@@ -582,3 +582,23 @@ async def test_execute_llm_with_retry_into_tool_loop_keeps_web_args_and_checkpoi
         configure_llm_completion_fn(None)
         set_privacy_mode_provider(None)
         thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+
+@pytest.mark.presidio
+def test_pii_masker_skips_two_letter_uppercase_acronyms_and_keeps_short_names():
+    """Plan 227: 2-letter ALL-CAPS acronyms (JD, HR) are skipped while real short names/cities remain masked with en_core_web_md."""
+    masker = PIIMasker()
+    masker._init_presidio_if_available()
+    assert masker._presidio_analyzer is not None
+
+    text = "Benjamin Simkin in Rome and Ana in Oslo reviewed JD and HR metrics."
+    masked, mapping = masker.mask(text)
+
+    assert "JD" in masked
+    assert "HR" in masked
+    assert "JD" not in mapping.values()
+    assert "HR" not in mapping.values()
+    assert "Benjamin Simkin" not in masked
+    assert "Rome" not in masked
+    assert "Ana" not in masked
+    assert "Oslo" not in masked

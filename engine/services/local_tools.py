@@ -295,11 +295,12 @@ def read_document(
 def write_document(
     rel_path: str,
     content: str,
+    mode: str = "overwrite",
     principal: ToolPrincipal | str | None = None,
     authorized_skills: list[str] | set[str] | str | None = None,
 ) -> str:
     """
-    Writes or overwrites content to a text document inside the agents_resources/ directory.
+    Writes, overwrites, or appends content to a text document inside the agents_resources/ directory.
     Enforces principal authorization and write boundaries (fails closed if principal is missing).
     """
     if principal is None:
@@ -307,6 +308,10 @@ def write_document(
     if not is_agent_authorized_for_tool(principal, "write_document", authorized_skills=authorized_skills):
         actor_id = principal.id if hasattr(principal, "id") else str(principal)
         return json.dumps({"error": f"Permission denied: Principal '{actor_id}' is not authorized to write documents."})
+
+    norm_mode = str(mode if mode is not None else "overwrite").strip().lower() or "overwrite"
+    if norm_mode not in {"overwrite", "append"}:
+        return json.dumps({"error": f"Invalid write mode '{mode}'. Must be 'overwrite' or 'append'."})
 
     actor_id = principal.id if hasattr(principal, "id") else str(principal)
     actor_kind = getattr(principal, "kind", "agent")
@@ -316,28 +321,6 @@ def write_document(
             get_max_write_bytes,
             is_path_write_blocked,
         )
-
-        content_bytes = len(content.encode("utf-8"))
-        max_bytes = get_max_write_bytes()
-        if content_bytes > max_bytes:
-            from services.audit_logger import log_audit_event
-
-            log_audit_event(
-                event_type="FILE_WRITE_BLOCKED",
-                actor={"type": actor_kind, "id": actor_id},
-                action="write_document",
-                target=rel_path,
-                details={
-                    "reason": f"Content size ({content_bytes} bytes) exceeds maximum permitted limit ({max_bytes} bytes)"
-                },
-                severity="CRITICAL",
-                status="BLOCKED",
-            )
-            return json.dumps(
-                {
-                    "error": f"File content size ({content_bytes} bytes) exceeds maximum permitted write limit of {max_bytes} bytes."
-                }
-            )
 
         path = _resolve_resource_path(rel_path)
         resources_dir = get_agents_resources_dir().resolve()
@@ -372,19 +355,59 @@ def write_document(
             return json.dumps(
                 {"error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."}
             )
+
+        if norm_mode == "append" and path.exists():
+            if path.is_dir():
+                raise IsADirectoryError()
+            existing = path.read_text(encoding="utf-8", errors="replace")
+            if not existing:
+                separator = ""
+            elif existing.endswith("\n\n") or content.startswith("\n\n"):
+                separator = ""
+            elif existing.endswith("\n") or content.startswith("\n"):
+                separator = "" if (existing.endswith("\n") and content.startswith("\n")) else "\n"
+            else:
+                separator = "\n\n"
+            final_content = f"{existing}{separator}{content}"
+        else:
+            final_content = content
+
+        content_bytes = len(final_content.encode("utf-8"))
+        max_bytes = get_max_write_bytes()
+        if content_bytes > max_bytes:
+            from services.audit_logger import log_audit_event
+
+            log_audit_event(
+                event_type="FILE_WRITE_BLOCKED",
+                actor={"type": actor_kind, "id": actor_id},
+                action="write_document",
+                target=rel_path,
+                details={
+                    "mode": norm_mode,
+                    "reason": f"Content size ({content_bytes} bytes) exceeds maximum permitted limit ({max_bytes} bytes)"
+                },
+                severity="CRITICAL",
+                status="BLOCKED",
+            )
+            return json.dumps(
+                {
+                    "error": f"File content size ({content_bytes} bytes) exceeds maximum permitted write limit of {max_bytes} bytes."
+                }
+            )
+
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
         tmp_path = Path(tmp_name)
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
-                tmp_f.write(content)
+                tmp_f.write(final_content)
                 tmp_f.flush()
                 os.fsync(tmp_f.fileno())
             os.replace(tmp_path, path)
         except Exception:
             tmp_path.unlink(missing_ok=True)
             raise
-        bytes_written = len(content.encode("utf-8"))
+        bytes_written = len(final_content.encode("utf-8"))
         from services.audit_logger import log_audit_event
 
         log_audit_event(
@@ -392,7 +415,7 @@ def write_document(
             actor={"type": actor_kind, "id": actor_id},
             action="write_document",
             target=rel_path,
-            details={"bytes_written": bytes_written},
+            details={"bytes_written": bytes_written, "mode": norm_mode},
             severity="WARNING",
             status="SUCCESS",
         )
@@ -400,6 +423,7 @@ def write_document(
             {
                 "success": True,
                 "document": rel_path,
+                "mode": norm_mode,
                 "bytes_written": bytes_written,
             }
         )
@@ -501,7 +525,10 @@ LOCAL_TOOLS_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "write_document",
-            "description": "Write or overwrite text content of a document inside the default resources directory.",
+            "description": (
+                "Create, overwrite, or append text content to a document inside the default resources directory. "
+                "Use mode='append' when adding new sections or reviews to an existing file without erasing prior content."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -511,7 +538,13 @@ LOCAL_TOOLS_SCHEMAS = [
                     },
                     "content": {
                         "type": "string",
-                        "description": "Text content to write into the document.",
+                        "description": "Text content to write or append into the document.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["overwrite", "append"],
+                        "description": "Write mode: 'overwrite' replaces the file (default); 'append' preserves existing content and appends cleanly after it (or creates the file if missing).",
+                        "default": "overwrite",
                     },
                 },
                 "required": ["rel_path", "content"],
@@ -536,6 +569,7 @@ TOOL_DISPATCHER: dict[str, Any] = {
     "write_document": lambda args, **kw: write_document(
         args.get("rel_path", ""),
         args.get("content", ""),
+        mode=args.get("mode", "overwrite"),
         principal=kw.get("principal"),
         authorized_skills=kw.get("authorized_skills"),
     ),

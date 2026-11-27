@@ -165,6 +165,8 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
             )
             if not isinstance(turn_res, dict) or turn_res.get("reason") == "checkpoint_already_claimed":
                 return
+            if turn_res.get("is_completed") or turn_res.get("halted") or turn_res.get("cancelled"):
+                return
             await continue_discussion_from_turn_result(
                 channel_id=channel_id,
                 thread_ts=thread_ts,
@@ -245,6 +247,8 @@ async def _resume_hitl_denial(req: Any, user_id: str) -> None:
                 user_id=user_id,
             )
             if not isinstance(turn_res, dict) or turn_res.get("reason") == "checkpoint_already_claimed":
+                return
+            if turn_res.get("is_completed") or turn_res.get("halted") or turn_res.get("cancelled"):
                 return
             await continue_discussion_from_turn_result(
                 channel_id=channel_id,

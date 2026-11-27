@@ -594,3 +594,53 @@ async def test_execution_uses_shared_evidence_instead_of_short_circuiting_with_t
     assert "/[agent-10003]" in ctx.output.final_text
 
 
+@pytest.mark.anyio
+async def test_multi_skill_mixed_task_reorders_full_and_file_authorized_agents_first():
+    """Plan 227: When document_authoring is granted to all, an agent also holding document_reader runs ahead of partial agents."""
+    from services.thread_skills_store import thread_skills_manager
+
+    channel_id = "C_MULTI_SKILL_1"
+    thread_ts = "100000.0020"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+    thread_skills_manager.revoke_skills(channel_id, thread_ts)
+    thread_skills_manager.grant_skills(channel_id, thread_ts, ["document_authoring"])
+
+    # agent-10001 lacks document_reader; agent-10002 has document_reader + thread-granted document_authoring
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, ["agent-10002", "agent-10003"])
+
+    pipeline = TurnPipeline(
+        post_system_message_fn=AsyncMock(return_value={"ok": True}),
+        files_fetcher=AsyncMock(return_value=[]),
+    )
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="From 01_AI_Maturity_Assessment.pdf write a review to out.md",
+        is_bot_trigger=False,
+    )
+    directives = ParsedDirectives(
+        cleaned_prompt="From 01_AI_Maturity_Assessment.pdf write a review to out.md",
+        actions=[
+            ActionDirective(name="document_reader", params={"target_file": "01_AI_Maturity_Assessment.pdf"}),
+            ActionDirective(name="document_authoring", params={"target_file": "out.md"}),
+        ],
+        detected_language="English",
+        is_pure_skill_task=False,
+    )
+
+    try:
+        with (
+            patch("orchestration.stages.validation.directive_parser.parse", AsyncMock(return_value=directives)),
+            patch("orchestration.stages.validation.get_initial_agents", return_value=["agent-10001", "agent-10002", "agent-10003"]),
+            patch("orchestration.stages.validation.parse_agent_and_prompt", return_value=("agent-10001", directives.cleaned_prompt, False)),
+        ):
+            halt = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+
+        assert halt is None
+        assert ctx.agent_key == "agent-10002"
+        assert thread_state_manager.get_remaining_agents(channel_id, thread_ts) == ["agent-10001", "agent-10003"]
+    finally:
+        thread_skills_manager.revoke_skills(channel_id, thread_ts)
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+

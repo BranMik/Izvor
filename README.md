@@ -344,7 +344,7 @@ Izvor ships with **22 declarative skills** defined via `SKILL.md` manifests: **4
 | [`web_research`](config/skills/web_research/SKILL.md) | Searches the live web (`web_search`) and extracts clean text from URLs (`fetch_web_page`). | `/web_research`, `/webresearch` | **Yes** (`true`) | SSRF, DNS-rebinding & Slowloris protected |
 | [`knowledge_base_rag`](config/skills/knowledge_base_rag/SKILL.md) | Hybrid LanceDB vector + BM25 search (`search_knowledge_rag`) over `config/rag_knowledge/`. | `/rag`, `/search_docs`, `/knowledge` | **Yes** (`true`) | Supports `all` and `self` scopes |
 | [`document_reader`](config/skills/document_reader/SKILL.md) | Lists (`list_documents`) and reads (`read_document`) files in `agents_resources/` or Slack attachments. | `/read_file`, `/read-file`, `/file`, `/attachment`, `/document_reader` | **Yes** (`true`) | `handles_files: true` |
-| [`document_authoring`](config/skills/document_authoring/SKILL.md) | Creates or updates non-code documents (`write_document`) inside `agents_resources/`. | `/document_authoring`, `/authoring`, `/write_doc` | **Yes** (`true`) | Requires Slack **HITL** approval (`requires_human_ITL: true`) |
+| [`document_authoring`](config/skills/document_authoring/SKILL.md) | Creates, overwrites, or appends to non-code documents (`write_document` with `mode="overwrite"` / `"append"`) inside `agents_resources/`. | `/document_authoring`, `/authoring`, `/write_document`, `/document_writer` | **Yes** (`true`) | Requires Slack **HITL** approval (`requires_human_ITL: true`) |
 
 ### 7.2 Built-in Orchestrator & Prompt-Modifier Skills (`engine/skills/builtin/`)
 

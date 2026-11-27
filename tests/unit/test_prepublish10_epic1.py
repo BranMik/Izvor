@@ -240,3 +240,40 @@ def test_turn_context_delta_token_recording():
         prompt_tokens=40,
         completion_tokens=25,
     )
+
+
+def test_turn_context_and_spend_governance_normalize_model_names(tmp_path):
+    """Plan 227: TurnContext.add_usage prefers configured canonical model and SpendGovernance normalizes case."""
+    from core.database import db_manager
+
+    mock_recorder = MagicMock()
+    ctx = TurnContext(
+        channel_id="channel_norm",
+        thread_ts="thread_norm",
+        agent_cfg={"model": "gemini/gemini-3.8-flash"},
+        token_recorder=mock_recorder,
+    )
+    resp = MagicMock()
+    resp.model = "gemini-3.8-flash"  # LiteLLM unprefixed response model
+    resp.usage = MagicMock(prompt_tokens=50, completion_tokens=10)
+    ctx.add_usage(resp)
+    mock_recorder.assert_called_once_with(
+        channel_id="channel_norm",
+        thread_ts="thread_norm",
+        model_name="gemini/gemini-3.8-flash",
+        prompt_tokens=50,
+        completion_tokens=10,
+    )
+
+    prev_db = db_manager.db_path
+    db_manager.configure_paths(db_path=tmp_path / "norm_spend.db")
+    try:
+        sg = SpendGovernance()
+        sg.record_usage("channel_norm:thread_norm", "  Gemini/Gemini-3.8-Flash ", prompt_tokens=100, completion_tokens=20)
+        sg.record_usage("channel_norm:thread_norm", "gemini/gemini-3.8-flash", prompt_tokens=50, completion_tokens=10)
+        metrics = sg.calculate_spend("channel_norm:thread_norm")
+        assert list(metrics.tokens_by_model.keys()) == ["gemini/gemini-3.8-flash"]
+        assert metrics.total_prompt_tokens == 150
+        assert metrics.total_completion_tokens == 30
+    finally:
+        db_manager.configure_paths(db_path=prev_db)

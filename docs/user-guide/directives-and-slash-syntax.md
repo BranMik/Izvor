@@ -84,7 +84,7 @@ Workspace administrators (`SLACK_ADMIN_USER_IDS`) can grant or revoke tool capab
 | `/web_research <query>` | `/webresearch` | `agent` ([`config/skills/web_research/SKILL.md`](file:///config/skills/web_research/SKILL.md)) | Requests live web search (`web_search`) and page extraction (`fetch_web_page`). |
 | `/rag <query>` | `/search_docs`, `/knowledge` | `agent` ([`config/skills/knowledge_base_rag/SKILL.md`](file:///config/skills/knowledge_base_rag/SKILL.md)) | Queries the hybrid LanceDB + Tantivy BM25 knowledge base (`search_knowledge_rag`). |
 | `/read_file <filename>` | `/read-file`, `/file`, `/attachment`, `/document_reader` | `agent` ([`config/skills/document_reader/SKILL.md`](file:///config/skills/document_reader/SKILL.md)) | Reads an attached Slack file or document in `agents_resources/` (`read_document`, `list_documents`). |
-| `/document_authoring <filename>` | `/authoring`, `/write_doc` | `agent` ([`config/skills/document_authoring/SKILL.md`](file:///config/skills/document_authoring/SKILL.md)) | Requests authoring/saving a file to `agents_resources/` (`write_document`, gated by Slack HITL approval). |
+| `/document_authoring <filename>` | `/authoring`, `/write_document`, `/document_writer` | `agent` ([`config/skills/document_authoring/SKILL.md`](file:///config/skills/document_authoring/SKILL.md)) | Requests authoring, overwriting, or appending to a file in `agents_resources/` (`write_document` with `mode="overwrite"` or `"append"`, gated by Slack HITL approval). |
 
 ---
 

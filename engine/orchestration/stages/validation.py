@@ -359,6 +359,7 @@ class ValidationStage:
                     skill_reg = get_skill_registry()
 
                 required_agent_skills: set[str] = set()
+                file_skill_name: str | None = None
                 if ctx.is_file_req:
                     file_skill = skill_reg.get_file_handler_skill()
                     file_skill_name = file_skill.name if file_skill else "document_reader"
@@ -390,10 +391,11 @@ class ValidationStage:
                         if c and c not in full_chain:
                             full_chain.append(c)
 
-                    authorized_chain: list[str] = []
+                    fully_authorized: list[str] = []
+                    partially_authorized: list[tuple[int, int, int, str]] = []
                     unauthorized_chain: list[str] = []
 
-                    for ag in full_chain:
+                    for idx, ag in enumerate(full_chain):
                         base_skills = list(
                             agents_map.get(ag, {}).get("skills")
                             or settings_manager.get_agent_skills(ag)
@@ -412,10 +414,17 @@ class ValidationStage:
                             thread_granted_skills=thread_granted,
                         )
                         ag_auth_skills = set(filtered if isinstance(filtered, list) else all_candidate_skills)
-                        if ag_auth_skills & required_agent_skills:
-                            authorized_chain.append(ag)
+                        matched_skills = ag_auth_skills & required_agent_skills
+                        if ag_auth_skills >= required_agent_skills:
+                            fully_authorized.append(ag)
+                        elif matched_skills:
+                            has_file_skill = 0 if (file_skill_name and file_skill_name in ag_auth_skills) else 1
+                            partially_authorized.append((has_file_skill, -len(matched_skills), idx, ag))
                         else:
                             unauthorized_chain.append(ag)
+
+                    partially_authorized.sort(key=lambda item: (item[0], item[1], item[2]))
+                    authorized_chain: list[str] = fully_authorized + [item[3] for item in partially_authorized]
 
                     filter_on = is_filter_unauthorized_skill_agents_enabled()
                     skills_fmt = ", ".join(f"'{s}'" for s in sorted(required_agent_skills))
@@ -467,12 +476,12 @@ class ValidationStage:
                                 ctx.input.channel_id, ctx.input.thread_ts, curr_remaining
                             )
                     else:
-                        # Toggle is OFF or mixed skill+debate task: prioritize authorized agents first
-                        if authorized_chain and unauthorized_chain:
+                        # Toggle is OFF or mixed skill+debate task: prioritize fully/file-authorized agents first
+                        reordered = authorized_chain + unauthorized_chain
+                        if reordered and reordered != full_chain:
                             logger.info(
-                                f"[ROUTER] Reordering chain to place authorized agents {authorized_chain} before unauthorized {unauthorized_chain}."
+                                f"[ROUTER] Reordering chain to place authorized agents {authorized_chain} before remaining {unauthorized_chain}."
                             )
-                            reordered = authorized_chain + unauthorized_chain
                             ctx.agent_key = reordered[0]
                             curr_remaining = reordered[1:]
                             thread_state_manager.set_remaining_agents(
@@ -604,9 +613,14 @@ class ValidationStage:
                             },
                         )
                 else:
-                    logger.warning(
-                        f"[ROUTER] User requested file reading but no files were found in thread {ctx.thread_key}"
-                    )
+                    if ctx.target_filename:
+                        logger.warning(
+                            f"[ROUTER] Requested file '{ctx.target_filename}' was not found in thread {ctx.thread_key} or agents_resources directory"
+                        )
+                    else:
+                        logger.warning(
+                            f"[ROUTER] User requested file reading but no files were found in thread {ctx.thread_key}"
+                        )
                     # If this was a knowledge base / RAG request, do NOT set a phantom Slack file context!
                     if any(a.name == "knowledge_base_rag" for a in getattr(ctx, "actions", [])):
                         logger.info(

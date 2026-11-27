@@ -76,9 +76,16 @@ def test_document_authoring_skill_definition():
     assert skill.tools == ["write_document"]
     assert "# Document Authoring Skill" in skill.instructions
 
+    slash_triggers = skill.triggers.get("slash", [])
+    assert "/write_document" in slash_triggers
+    assert "/document_writer" in slash_triggers
+    assert "/write_doc" not in slash_triggers
+
     schemas = skill.get_tool_schemas()
     assert len(schemas) == 1
     assert schemas[0]["function"]["name"] == "write_document"
+    mode_prop = schemas[0]["function"]["parameters"]["properties"]["mode"]
+    assert mode_prop["enum"] == ["overwrite", "append"]
 
 
 

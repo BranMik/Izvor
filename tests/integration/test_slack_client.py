@@ -24,9 +24,14 @@ async def test_fetch_thread_history_filters_and_formats():
         {"user": "U_USER1", "text": "Can we discuss the architecture?", "subtype": None},
         # 2. Runner follow-up prompt requiring re.sub cleaning
         {"user": "U_USER1", "text": "👤 *Follow-up Prompt:*\n> What about SQLite for storage?", "subtype": None},
-        # 3. Status messages to be ignored
+        # 3. Status messages to be ignored (both Unicode and Slack shortcodes)
         {"user": "U_BOT", "text": "_⚡ *SecurityArchitect* is loading skill: db_inspect..._", "subtype": "bot_message"},
         {"user": "U_BOT", "text": "_🔍 Searching online resources..._", "subtype": "bot_message"},
+        {"user": "U_BOT", "text": "_:hourglass_flowing_sand: *Tactician* is analyzing data..._", "subtype": "bot_message"},
+        {"user": "U_BOT", "text": "_:mag: *Innovator* is searching..._", "subtype": "bot_message"},
+        {"user": "U_BOT", "text": "_:globe_with_meridians: *Visionary* is fetching webpage..._", "subtype": "bot_message"},
+        {"user": "U_BOT", "text": "_:zap: *Sceptic* is loading skill..._", "subtype": "bot_message"},
+        {"user": "U_BOT", "text": "_:stop_button: Stopped._", "subtype": "bot_message"},
         # 4. System warnings / scribe / test cards to be ignored
         {"user": "U_BOT", "text": "📋 Scribe summary note", "username": "Live Discussion Scribe", "subtype": "bot_message"},
         {"user": "U_BOT", "text": "🧪 E2E test card", "username": "E2E Test Runner", "subtype": "bot_message"},
@@ -275,5 +280,50 @@ async def test_post_agent_response_unfurl_and_sanitize():
     assert captured_kwargs["unfurl_media"] is False
     assert "<!channel>" not in captured_kwargs["text"]
     assert "@channel" in captured_kwargs["text"]
+
+
+@pytest.mark.anyio
+async def test_post_thread_note_reports_pinned_false_on_too_many_pins():
+    """Plan 227: post_thread_note returns pinned=False when pins.add fails with too_many_pins."""
+    mock_client = AsyncMock()
+    mock_client.chat_postMessage.return_value = {"ok": True, "ts": "999.111"}
+    mock_client.pins_add.side_effect = SlackApiError("too_many_pins", response={"error": "too_many_pins"})
+    configure_slack_async_client(mock_client)
+    try:
+        res = await slack_client.post_thread_note(
+            channel_id="C_TEST",
+            thread_ts="123.456",
+            text="Synthesis",
+            pin=True,
+        )
+    finally:
+        reset_slack_async_client()
+
+    assert res["ok"] is True
+    assert res["ts"] == "999.111"
+    assert res["pinned"] is False
+
+
+@pytest.mark.anyio
+async def test_update_slack_message_uses_slack_log_tag(caplog):
+    """Plan 227: update_slack_message logs [SLACK] rather than [SLACK NOTE]."""
+    import logging
+
+    mock_client = AsyncMock()
+    mock_client.chat_update.return_value = {"ok": True}
+    configure_slack_async_client(mock_client)
+    try:
+        with caplog.at_level(logging.INFO):
+            res = await slack_client.update_slack_message(
+                channel_id="C_TEST",
+                ts="999.222",
+                text="Updated response",
+            )
+    finally:
+        reset_slack_async_client()
+
+    assert res["ok"] is True
+    assert "[SLACK] Successfully updated message 999.222" in caplog.text
+    assert "[SLACK NOTE]" not in caplog.text
 
 

@@ -548,10 +548,12 @@ async def update_notes_for_thread(
                     )
                     note_ts = post_res.get("ts")
                     if note_ts:
+                        was_pinned = bool(post_res.get("pinned", True))
                         set_thread_note(channel_id, thread_ts, note_ts)
-                        set_live_note_pinned(channel_id, thread_ts, True)
+                        set_live_note_pinned(channel_id, thread_ts, was_pinned)
+                        pin_status = "Created and pinned" if was_pinned else "Created (pinning skipped)"
                         logger.info(
-                            f"[THREAD NOTES] Created and pinned live synthesis note {note_ts} for thread {thread_ts}"
+                            f"[THREAD NOTES] {pin_status} live synthesis note {note_ts} for thread {thread_ts}"
                         )
                 else:
                     await update_thread_note(
@@ -631,9 +633,11 @@ async def update_notes_for_thread(
                         )
                         conclusion_ts = post_conc_res.get("ts")
                         if conclusion_ts:
+                            was_pinned = bool(post_conc_res.get("pinned", True))
                             set_thread_conclusion_note(channel_id, thread_ts, conclusion_ts)
+                            pin_status = "Created and pinned" if was_pinned else "Created (pinning skipped)"
                             logger.info(
-                                f"[THREAD NOTES] Created and pinned conclusion note {conclusion_ts} for thread {thread_ts}"
+                                f"[THREAD NOTES] {pin_status} conclusion note {conclusion_ts} for thread {thread_ts}"
                             )
                     else:
                         await update_thread_note(

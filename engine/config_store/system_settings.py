@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 BACKUP_INTERVAL_SECONDS = 7 * 86400
 
+DEFAULT_PII_NER_MODELS: tuple[str, ...] = ("en_core_web_md",)
+
 DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
     ".env",
     ".git",
@@ -134,7 +136,7 @@ class SystemSettingsModel(BaseModel):
     guardrail_chunk_overlap_chars: int = 200
     guardrail_max_chunks: int = 8
     guardrail_indirect_embedding_enabled: bool = False
-    pii_ner_models: list[str] = Field(default_factory=lambda: ["en_core_web_sm"])
+    pii_ner_models: list[str] = Field(default_factory=lambda: list(DEFAULT_PII_NER_MODELS))
     audit_hmac_key_id: str = "default"
     thread_cleanup_interval_seconds: float = 600.0
     audit_integrity_check_interval_seconds: float = 43200.0
@@ -251,7 +253,7 @@ class SystemSettingsManager:
         self.guardrail_chunk_overlap_chars: int = 200
         self.guardrail_max_chunks: int = 8
         self.guardrail_indirect_embedding_enabled: bool = False
-        self.pii_ner_models: list[str] = ["en_core_web_sm"]
+        self.pii_ner_models: list[str] = list(DEFAULT_PII_NER_MODELS)
         self.audit_hmac_key_id: str = "default"
         self.thread_cleanup_interval_seconds: float = 600.0
         self.audit_integrity_check_interval_seconds: float = 43200.0
@@ -448,9 +450,9 @@ class SystemSettingsManager:
         self.guardrail_indirect_embedding_enabled = bool(
             getattr(model, "guardrail_indirect_embedding_enabled", False)
         )
-        raw_ner = getattr(model, "pii_ner_models", ["en_core_web_sm"])
+        raw_ner = getattr(model, "pii_ner_models", list(DEFAULT_PII_NER_MODELS))
         cleaned_ner = [str(m).strip() for m in raw_ner if isinstance(m, str) and str(m).strip()] if isinstance(raw_ner, list) else []
-        self.pii_ner_models = cleaned_ner or ["en_core_web_sm"]
+        self.pii_ner_models = cleaned_ner or list(DEFAULT_PII_NER_MODELS)
         self.audit_hmac_key_id = str(getattr(model, "audit_hmac_key_id", "default") or "default").strip() or "default"
         self.thread_cleanup_interval_seconds = float(model.thread_cleanup_interval_seconds)
         self.audit_integrity_check_interval_seconds = float(model.audit_integrity_check_interval_seconds)
@@ -635,6 +637,10 @@ class SystemSettingsManager:
             "guardrail_chunk_overlap_chars": self.guardrail_chunk_overlap_chars,
             "guardrail_max_chunks": self.guardrail_max_chunks,
             "guardrail_indirect_embedding_enabled": self.guardrail_indirect_embedding_enabled,
+            "_comment_pii_ner_models": (
+                "List of installed spaCy NER models used by Presidio. If you change this value, "
+                "also update the spaCy model wheel in pyproject.toml (and requirements.txt) and install the model."
+            ),
             "pii_ner_models": list(self.pii_ner_models),
             "audit_hmac_key_id": self.audit_hmac_key_id,
             "thread_cleanup_interval_seconds": self.thread_cleanup_interval_seconds,
@@ -1054,7 +1060,7 @@ class SystemSettingsManager:
 
     def set_pii_ner_models(self, models: list[str], save: bool = True) -> None:
         cleaned = [str(m).strip() for m in models if isinstance(m, str) and str(m).strip()]
-        self.pii_ner_models = cleaned or ["en_core_web_sm"]
+        self.pii_ner_models = cleaned or list(DEFAULT_PII_NER_MODELS)
         if save:
             self.save()
 

@@ -81,7 +81,7 @@ Izvor utilizes:
 - `slack-sdk` for Slack WebClient operations and Block Kit rendering.
 - `litellm` for universal multi-provider LLM completions and embeddings.
 - `lancedb`, `tantivy`, `pyarrow`, and `pandas` for serverless hybrid vector + BM25 RAG retrieval and prompt-injection guardrails.
-- `presidio-analyzer` and `spacy` (`en_core_web_sm` by default; configurable via `pii_ner_models`) for local NER + regex two-way PII masking.
+- `presidio-analyzer` and `spacy` (`en_core_web_md` by default; configurable via `pii_ner_models` — if changed, also update the spaCy model wheel in [`pyproject.toml`](file:///pyproject.toml) and [`requirements.txt`](file:///requirements.txt) and install the model) for local NER + regex two-way PII masking.
 - `mcp` for external Model Context Protocol (`stdio` / `sse` / `streamable_http`) client integration.
 - `httpx`, `httpcore`, `ddgs`, `beautifulsoup4`, and `pypdf` for SSRF-guarded web research and document parsing.
 - `pydantic` and `pyyaml` for domain models, configuration validation, and `SKILL.md` frontmatter parsing.
@@ -162,7 +162,7 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `default_reasoning_model` | `"mistral/mistral-large-latest"` | System-level fallback model for deep deliberation and Stage 2 revisor confirmation. |
 | `log_level` | `"INFO"` | Application log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `strict_privacy_mode_enabled` | `true` | Enforces two-way Presidio + regex PII masking on outbound LLM prompts. |
-| `pii_ner_models` | `["en_core_web_sm"]` *(schema default)* | Configurable list of installed spaCy NER models validated via `spacy.util.is_package()` for multilingual Presidio detection. |
+| `pii_ner_models` | `["en_core_web_md"]` | Configurable list of installed spaCy NER models validated via `spacy.util.is_package()` for multilingual Presidio detection. **If changed, you must also update the spaCy model dependency in [`pyproject.toml`](file:///pyproject.toml) (and [`requirements.txt`](file:///requirements.txt)) and install the model.** |
 | `internal_revisor_enabled` | `true` | Enables Two-Stage `InternalRevisor` post-turn hallucination/contradiction verification. |
 | `shared_evidence_max_chars` | `40000` | Maximum character budget for `<shared_round_evidence>` and `<retrieved_evidence>` blocks. |
 | `debate_turn_pacing_seconds` | `3.0` | Delay between consecutive agent turns to prevent flooding. |

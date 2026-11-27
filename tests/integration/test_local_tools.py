@@ -460,3 +460,38 @@ def test_local_tools_system_resources_boundary_enforcement():
     res_write = json.loads(write_document("../system_resources/tamper.txt", "evil", principal=SYSTEM_PRINCIPAL))
     assert "error" in res_write
     assert "Permission denied" in res_write["error"] or "Access denied" in res_write["error"]
+
+
+def test_local_tools_write_document_append_mode_and_validation():
+    """Plan 227: write_document supports mode='append', preserves existing content, enforces max_write_bytes, and validates mode."""
+    from config_store.system_settings import system_settings_manager
+    from services.local_tools import AGENTS_RESOURCES_DIR, write_document
+
+    rel = "test_append_mode_doc.md"
+    target = AGENTS_RESOURCES_DIR / rel
+    target.unlink(missing_ok=True)
+    orig_max_write = system_settings_manager.get_max_write_bytes()
+
+    try:
+        # 1. Invalid mode rejected
+        bad_mode = json.loads(write_document(rel, "x", mode="prepend", principal=SYSTEM_PRINCIPAL))
+        assert "Invalid write mode" in bad_mode.get("error", "")
+
+        # 2. Append creates file when missing
+        r1 = json.loads(write_document(rel, "## Section 1\nFirst.", mode="append", principal=SYSTEM_PRINCIPAL))
+        assert r1["success"] is True and r1["mode"] == "append"
+        assert target.read_text(encoding="utf-8") == "## Section 1\nFirst."
+
+        # 3. Second append preserves Section 1 and separates cleanly
+        r2 = json.loads(write_document(rel, "## Section 2\nSecond.", mode="append", principal=SYSTEM_PRINCIPAL))
+        assert r2["success"] is True and r2["mode"] == "append"
+        assert target.read_text(encoding="utf-8") == "## Section 1\nFirst.\n\n## Section 2\nSecond."
+
+        # 4. Combined size exceeding max_write_bytes is blocked
+        system_settings_manager.set_max_write_bytes(45, save=False)
+        r3 = json.loads(write_document(rel, "Extra payload pushing over limit", mode="append", principal=SYSTEM_PRINCIPAL))
+        assert "exceeds maximum permitted write limit" in r3.get("error", "")
+        assert target.read_text(encoding="utf-8") == "## Section 1\nFirst.\n\n## Section 2\nSecond."
+    finally:
+        system_settings_manager.set_max_write_bytes(orig_max_write, save=False)
+        target.unlink(missing_ok=True)

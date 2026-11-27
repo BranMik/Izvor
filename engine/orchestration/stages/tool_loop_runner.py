@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import json
 import logging
+import re
 import sqlite3
 from typing import TYPE_CHECKING, Any
 
@@ -71,21 +73,62 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
 
 
 def _remask_with_mapping(val: Any, mapping: dict[str, str]) -> Any:
-    """Recursively replaces raw PII values with their placeholder tokens before checkpoint persistence."""
+    """Recursively replaces raw PII values with placeholder tokens using word-boundary single-pass matching."""
     if not mapping or val is None:
         return val
     if isinstance(val, str):
-        masked = val
-        # Replace longest raw values first to avoid partial substring corruption
+        raw_to_token: dict[str, str] = {}
+        # Longest raw values first so multi-word spans take precedence over substrings
         for token, raw_val in sorted(mapping.items(), key=lambda kv: len(str(kv[1])), reverse=True):
-            if raw_val and raw_val in masked:
-                masked = masked.replace(raw_val, token)
-        return masked
+            raw_str = str(raw_val or "")
+            if raw_str and raw_str not in raw_to_token:
+                raw_to_token[raw_str] = token
+        if not raw_to_token:
+            return val
+        pattern_parts: list[str] = []
+        for raw_str in raw_to_token:
+            escaped = re.escape(raw_str)
+            if raw_str[0].isalnum() or raw_str[0] == "_":
+                escaped = rf"(?<!\w){escaped}"
+            if raw_str[-1].isalnum() or raw_str[-1] == "_":
+                escaped = rf"{escaped}(?!\w)"
+            pattern_parts.append(escaped)
+        pattern = re.compile("|".join(pattern_parts))
+        return pattern.sub(lambda m: raw_to_token[m.group(0)], val)
     if isinstance(val, dict):
         return {k: _remask_with_mapping(v, mapping) for k, v in val.items()}
     if isinstance(val, list):
         return [_remask_with_mapping(item, mapping) for item in val]
     return val
+
+
+def _remask_messages_for_checkpoint(messages: list[dict[str, Any]], mapping: dict[str, str]) -> list[dict[str, Any]]:
+    """
+    Deep-copies messages and remasks only text content and tool_call arguments,
+    leaving opaque provider metadata (e.g. thought_signature, thinking_blocks) untouched.
+    """
+    cloned = copy.deepcopy(messages)
+    if not mapping or not cloned:
+        return cloned
+    for msg in cloned:
+        if not isinstance(msg, dict) or msg.get("role") == "system":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            msg["content"] = _remask_with_mapping(content, mapping)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+                    part["text"] = _remask_with_mapping(part["text"], mapping)
+        tool_calls = msg.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for tc in tool_calls:
+                if not isinstance(tc, dict):
+                    continue
+                fn = tc.get("function")
+                if isinstance(fn, dict) and "arguments" in fn and isinstance(fn["arguments"], (str, dict)):
+                    fn["arguments"] = _remask_with_mapping(fn["arguments"], mapping)
+    return cloned
 
 
 def _is_tool_error(result: Any) -> bool:
@@ -222,8 +265,17 @@ class ToolLoopRunner:
             mapping = dict(ctx.turn_token_mapping or {})
             raw_prompt = ctx.prompt or ctx.raw_text_cleaned or ctx.input.raw_text or ""
             safe_prompt = _remask_with_mapping(raw_prompt, mapping) if mapping else raw_prompt
-            safe_messages = _remask_with_mapping(list(ctx.messages or []), mapping) if mapping else (ctx.messages or [])
-            safe_pending = _remask_with_mapping(pending_tool_call, mapping) if (mapping and pending_tool_call) else pending_tool_call
+            safe_messages = (
+                _remask_messages_for_checkpoint(list(ctx.messages or []), mapping)
+                if mapping
+                else copy.deepcopy(list(ctx.messages or []))
+            )
+            if mapping and isinstance(pending_tool_call, dict):
+                safe_pending: dict[str, Any] | None = copy.deepcopy(pending_tool_call)
+                if "args" in safe_pending:
+                    safe_pending["args"] = _remask_with_mapping(safe_pending["args"], mapping)
+            else:
+                safe_pending = pending_tool_call
             chk = TurnCheckpoint(
                 checkpoint_id=chk_id,
                 session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
@@ -311,9 +363,10 @@ class ToolLoopRunner:
         iteration = 0
         substantive_tool_outputs_count = 0
         hit_max_iterations_needs_synthesis = False
+        paused_hitl_fn_name: str | None = None
 
         async def _execute_loop() -> dict[str, Any] | None:
-            nonlocal iteration, response_message, tool_calls, substantive_tool_outputs_count, hit_max_iterations_needs_synthesis
+            nonlocal iteration, response_message, tool_calls, substantive_tool_outputs_count, hit_max_iterations_needs_synthesis, paused_hitl_fn_name
             while tool_calls and isinstance(tool_calls, (list, tuple)) and iteration < max_tool_iterations:
                 iteration += 1
                 if on_status_update is not None:
@@ -448,6 +501,7 @@ class ToolLoopRunner:
                                     )
                                     ctx.output.halted = True
                                     ctx.output.waiting_hitl = True
+                                    paused_hitl_fn_name = fn_name
 
                                     responded_ids = {
                                         m.get("tool_call_id") for m in ctx.messages if m.get("role") == "tool"
@@ -586,15 +640,21 @@ class ToolLoopRunner:
                     return {"ok": False, "cancelled": True, "reason": "superseded"}
 
                 is_paused = bool(getattr(ctx.output, "waiting_hitl", False) or getattr(ctx.output, "halted", False))
-                if not is_paused and iteration >= max_tool_iterations:
+                if is_paused:
+                    if getattr(ctx.output, "waiting_hitl", False) and not ctx.output.final_text:
+                        fn_label = paused_hitl_fn_name or "action"
+                        ctx.output.final_text = f"_⏳ Waiting for human approval on `{fn_label}`..._"
+                    tool_calls = None
+                    break
+                if iteration >= max_tool_iterations:
                     hit_max_iterations_needs_synthesis = True
                     break
 
                 follow_up_kwargs = build_completion_kwargs(
                     model=ctx.agent_cfg.get("model", ""),
                     messages=ctx.messages,
-                    tools=None if is_paused else (active_tools if active_tools else None),
-                    tool_choice=None if is_paused else ("auto" if active_tools else None),
+                    tools=active_tools if active_tools else None,
+                    tool_choice="auto" if active_tools else None,
                 )
 
                 follow_up = await exec_retry_fn(
@@ -622,11 +682,6 @@ class ToolLoopRunner:
                 response_message = follow_up.choices[0].message
                 raw_tool_calls = getattr(response_message, "tool_calls", None)
                 tool_calls = raw_tool_calls if isinstance(raw_tool_calls, (list, tuple)) else None
-
-                if is_paused:
-                    tool_calls = None
-                    self.turn_finalizer.finalize_message(ctx, response_message)
-                    break
 
                 if tool_calls and self.is_mid_turn_budget_exceeded(ctx):
                     logger.warning(
@@ -672,7 +727,7 @@ class ToolLoopRunner:
             loop_res = await asyncio.wait_for(_execute_loop(), timeout=timeout_secs)
             if loop_res is not None:
                 return loop_res
-            if not hit_max_iterations_needs_synthesis:
+            if not hit_max_iterations_needs_synthesis and not getattr(ctx.output, "waiting_hitl", False):
                 self.turn_finalizer.finalize_message(ctx, response_message)
         except TimeoutError:
             logger.warning(f"[ROUTER] Tool calling loop timed out after {timeout_secs}s for {ctx.agent_key}.")

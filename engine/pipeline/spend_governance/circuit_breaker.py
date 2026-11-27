@@ -40,6 +40,7 @@ class SpendGovernance:
         completion_tokens: int = 0,
     ) -> None:
         """Records token usage for a model within a session and writes directly to SQLite spend_ledger."""
+        model_name = (model_name or "unknown").strip().lower() or "unknown"
         pricing = get_model_pricing(model_name)
         p_rate = (
             pricing.input_price_per_1m

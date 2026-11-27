@@ -343,7 +343,8 @@ class TurnContext:
 
         if prompt_tokens > 0 or completion_tokens > 0:
             resp_model = getattr(resp, "model", None)
-            model_name = resp_model or (self.agent_cfg.get("model", "") if self.agent_cfg else "") or "unknown"
+            configured_model = self.agent_cfg.get("model", "") if self.agent_cfg else ""
+            model_name = configured_model or resp_model or "unknown"
             recorder = getattr(self, "token_recorder", None) or record_thread_tokens
             if recorder:
                 try:
@@ -558,6 +559,26 @@ class TurnPipeline:
             logger.info(
                 f"[ROUTER] Task cancelled for thread {ctx.thread_key} (agent {ctx.agent_key}, gen {ctx.my_generation}). Aborting cleanly."
             )
+            if ctx.intermediate_msg_ts:
+                from core.task_utils import safe_create_task
+
+                stopped = thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts)
+                cancel_text = "_⏹️ Stopped._" if stopped else "_⏹️ Superseded by a newer message._"
+
+                async def _cleanup_intermediate(ch_id: str, msg_ts: str, txt: str) -> None:
+                    try:
+                        await self.post_record_stage.workspace_adapter.update_agent_turn(
+                            channel_id=ch_id,
+                            message_ts=msg_ts,
+                            text=txt,
+                        )
+                    except Exception as cleanup_err:  # noqa: BLE001
+                        logger.debug(f"[ROUTER] Failed cleaning intermediate message on cancellation: {cleanup_err}")
+
+                safe_create_task(
+                    _cleanup_intermediate(ctx.input.channel_id, ctx.intermediate_msg_ts, cancel_text),
+                    name=f"cleanup_intermediate:{ctx.input.channel_id}:{ctx.input.thread_ts}",
+                )
             raise
         except Exception as e:  # noqa: BLE001 - Pipeline error boundary catches unexpected stage errors and delegates to handle_error
             return await self.post_record_stage.handle_error(ctx, e)

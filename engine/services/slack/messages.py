@@ -328,8 +328,21 @@ async def fetch_thread_history(
             user_id = msg.get("user")
             is_bot_msg = bool(subtype == "bot_message" or username or (bot_user_id and user_id == bot_user_id))
 
-            # Ignore ephemeral status messages from thread conversation history
-            if msg_text.strip().startswith(("_🔍", "_🌐", "_⚡", "_⏳")):
+            # Ignore ephemeral status messages from thread conversation history (Unicode and Slack shortcodes)
+            if msg_text.strip().startswith(
+                (
+                    "_🔍",
+                    "_🌐",
+                    "_⚡",
+                    "_⏳",
+                    "_⏹️",
+                    "_:mag:",
+                    "_:globe_with_meridians:",
+                    "_:zap:",
+                    "_:hourglass_flowing_sand:",
+                    "_:stop_button:",
+                )
+            ):
                 continue
 
             # Ignore internal system warnings, test runner cards, and scribe summaries from LLM history
@@ -405,6 +418,7 @@ async def post_thread_note(
             "ok": True,
             "ts": mock_ts,
             "mock": True,
+            "pinned": bool(pin),
             "blocks": blocks,
             "dlp_blocked": bool(matched_rule),
             "dlp_rule": matched_rule,
@@ -432,10 +446,12 @@ async def post_thread_note(
             f"[SLACK NOTE] Posted live note message {msg_ts} in thread {thread_ts} of channel {channel_id} ({username})"
         )
 
+        pinned_ok = False
         if pin and msg_ts:
             try:
                 await slack_rate_limiter.acquire()
                 await client.pins_add(channel=channel_id, timestamp=msg_ts)
+                pinned_ok = True
                 logger.info(
                     f"[SLACK NOTE] Pinned note message {msg_ts} to channel {channel_id}"
                 )
@@ -452,7 +468,7 @@ async def post_thread_note(
             except (KeyError, TypeError, OSError) as pin_ex:
                 logger.debug(f"[SLACK NOTE] Note message pinning skipped: {pin_ex}")
 
-        return {"ok": True, "ts": msg_ts}
+        return {"ok": True, "ts": msg_ts, "pinned": pinned_ok}
     except SlackApiError as e:
         logger.error(
             f"[SLACK NOTE] Error posting thread note: {e.response.get('error', e)}"
@@ -501,16 +517,16 @@ async def unpin_thread_note(
         return {"ok": False, "error": str(e)}
 
 
-async def update_thread_note(
+async def _update_chat_message(
     channel_id: str,
     message_ts: str,
     text: str,
     blocks: list[dict[str, Any]] | None = None,
+    *,
+    log_tag: str = "SLACK NOTE",
+    label: str = "live note message",
 ) -> dict[str, Any]:
-    """
-    Updates an existing live summary/notes message in-place via Slack chat.update.
-    Supports Block Kit blocks.
-    """
+    """Updates an existing Slack message in-place via chat.update."""
     text, blocks, matched_rule = _prepare_outbound_payload(text, blocks, user_id="system_update")
 
     bot_token = get_slack_bot_token()
@@ -519,7 +535,7 @@ async def update_thread_note(
         or bot_token == "xoxb-your-bot-user-oauth-token"
         or (message_ts and str(message_ts).startswith("mock_"))
     ):
-        logger.info(f"[MOCK NOTE] Updated mock note {message_ts} ({len(text)} chars)")
+        logger.info(f"[MOCK {log_tag}] Updated mock {label} {message_ts} ({len(text)} chars)")
         return {
             "ok": True,
             "ts": message_ts,
@@ -531,7 +547,6 @@ async def update_thread_note(
         }
 
     try:
-
         await slack_rate_limiter.acquire()
         client = get_slack_async_client()
         kwargs: dict[str, Any] = {
@@ -544,7 +559,7 @@ async def update_thread_note(
         if blocks is not None:
             kwargs["blocks"] = blocks
         await client.chat_update(**kwargs)
-        logger.info(f"[SLACK NOTE] Successfully updated live note message {message_ts}")
+        logger.info(f"[{log_tag}] Successfully updated {label} {message_ts}")
         return {
             "ok": True,
             "ts": message_ts,
@@ -554,12 +569,32 @@ async def update_thread_note(
         }
     except SlackApiError as e:
         logger.error(
-            f"[SLACK NOTE] Error updating note {message_ts}: {e.response.get('error', e)}"
+            f"[{log_tag}] Error updating {label} {message_ts}: {e.response.get('error', e)}"
         )
         return {"ok": False, "error": str(e)}
     except Exception as e:  # noqa: BLE001 - Slack API boundary returns error payload instead of crashing callers
-        logger.error(f"[SLACK NOTE] Unexpected error updating note {message_ts}: {e}")
+        logger.error(f"[{log_tag}] Unexpected error updating {label} {message_ts}: {e}")
         return {"ok": False, "error": str(e)}
+
+
+async def update_thread_note(
+    channel_id: str,
+    message_ts: str,
+    text: str,
+    blocks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """
+    Updates an existing live summary/notes message in-place via Slack chat.update.
+    Supports Block Kit blocks.
+    """
+    return await _update_chat_message(
+        channel_id=channel_id,
+        message_ts=message_ts,
+        text=text,
+        blocks=blocks,
+        log_tag="SLACK NOTE",
+        label="live note message",
+    )
 
 
 async def post_usage_message(
@@ -709,4 +744,11 @@ async def update_slack_message(
     text: str,
     blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    return await update_thread_note(channel_id=channel_id, message_ts=ts, text=text, blocks=blocks)
+    return await _update_chat_message(
+        channel_id=channel_id,
+        message_ts=ts,
+        text=text,
+        blocks=blocks,
+        log_tag="SLACK",
+        label="message",
+    )
