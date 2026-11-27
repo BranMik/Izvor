@@ -24,7 +24,6 @@ from core.models import OrchestrationMode, REQUIRED_DEFAULT_WORKFLOW_IDS, is_dia
 from core.paths import (
     AGENT_BACKUP_FILE as BACKUP_FILE,
     AGENT_SETTINGS_FILE as SETTINGS_FILE,
-    DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
     PERSONAS_DIR,
     SYSTEM_AGENT_BACKUP_FILE,
     SYSTEM_AGENT_SETTINGS_FILE,
@@ -585,19 +584,25 @@ class AgentSettingsManager:
 
     def _load_and_validate_system_agent_settings(self) -> None:
         """
-        Loads orchestrator and system agents configuration from
+        Loads read-only orchestrator and system agents configuration from
         engine/settings/system_agent_settings.json with emergency backup failover.
         """
         target_file = self.active_system_agent_settings_file
         backup_file = self.active_system_agent_backup_file
         data = None
+        loaded_from_primary = False
 
         if target_file.exists():
             try:
                 with open(target_file, "r", encoding="utf-8") as f:
                     raw_text = f.read()
                 ConfigIntegrityValidator.check_duplicate_ids_in_raw_json(raw_text)
-                data = json.loads(raw_text)
+                parsed = json.loads(raw_text)
+                if isinstance(parsed, dict):
+                    data = parsed
+                    loaded_from_primary = True
+                else:
+                    logger.warning(f"[SETTINGS] Invalid JSON object in {target_file.name}. Trying backup.")
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
                 logger.warning(f"[SETTINGS] Failed to read {target_file.name}: {e}. Trying backup.")
 
@@ -608,14 +613,6 @@ class AgentSettingsManager:
                 logger.warning(f"[SETTINGS] Loaded system agent settings from backup {backup_file.name}")
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
                 logger.error(f"[SETTINGS] Failed reading system agent backup: {e}")
-
-        if not isinstance(data, dict) and DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.exists():
-            try:
-                with open(DEFAULT_SYSTEM_AGENT_SETTINGS_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                logger.info(f"[SETTINGS] Loaded baseline system agent settings from {DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.name}")
-            except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
-                logger.error(f"[SETTINGS] Failed reading baseline system agent settings: {e}")
 
         if isinstance(data, dict):
             raw_orch = data.get("orchestrator", {})
@@ -671,7 +668,8 @@ class AgentSettingsManager:
                         if sys_entry:
                             self.system_agents_config[sys_k] = sys_entry
 
-            self.check_and_update_system_agent_backup()
+            if loaded_from_primary:
+                self.check_and_update_system_agent_backup()
 
     def check_and_update_system_agent_backup(self) -> bool:
         """Updates emergency backup copy for system_agent_settings.json."""
@@ -846,7 +844,7 @@ class AgentSettingsManager:
         """
         Saves current enabled debate agents, agent configurations,
         and workflow reference to config/settings/agent_settings.json.
-        Does NOT save orchestrator or system agents (saved via save_system_agent_settings).
+        Does NOT save orchestrator or system agents (read-only in engine/settings/system_agent_settings.json).
         Returns True when persisted successfully; rolls back in-memory _raw_data on error.
         """
         wf_ref = self.workflow_config or self.active_workflow_id
@@ -899,29 +897,6 @@ class AgentSettingsManager:
             except (OSError, TypeError, ValueError) as e:
                 self._raw_data = prev_raw
                 logger.error(f"[SETTINGS] Error saving agent settings: {e}")
-                return False
-
-    def save_system_agent_settings(self) -> bool:
-        """Saves current orchestrator and system agents configuration to engine/settings/system_agent_settings.json."""
-        with self._save_lock:
-            data = {
-                "orchestrator": {
-                    "fast_model": self.get_orchestrator_fast_model(),
-                    "reasoning_model": self.get_orchestrator_reasoning_model(),
-                    "username": self.orchestrator_config.get("username", "Orchestrator"),
-                    "displayname": self.orchestrator_config.get("displayname", "Orchestrator"),
-                    "icon_url": self.orchestrator_config.get("icon_url", "static/image_99.png"),
-                },
-                "system_agents": copy.deepcopy(self.system_agents_config),
-            }
-            target_file = self.active_system_agent_settings_file
-            try:
-                self._atomic_write_json(target_file, data)
-                self.check_and_update_system_agent_backup()
-                logger.info(f"[SETTINGS] Saved system agent settings to {target_file.name}")
-                return True
-            except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
-                logger.error(f"[SETTINGS] Error saving system agent settings: {e}")
                 return False
 
     def sync_if_modified(self) -> bool:
@@ -1210,22 +1185,6 @@ class AgentSettingsManager:
         logger.info(f"[SETTINGS] Updated model for '{agent_key}': {clean_model}")
         return True
 
-    def set_system_agent_model(self, sys_agent_key: str, model: str, save: bool = True) -> bool:
-        """Sets the LLM model for a system agent and persists to system_agent_settings.json."""
-        if sys_agent_key not in self.system_agents_config:
-            logger.warning(f"[SETTINGS] Cannot set model for unknown system agent '{sys_agent_key}'")
-            return False
-
-        clean_model = str(model).strip()
-        if not clean_model:
-            return False
-
-        self.system_agents_config[sys_agent_key]["model"] = clean_model
-        if save:
-            self.save_system_agent_settings()
-        logger.info(f"[SETTINGS] Updated system agent model for '{sys_agent_key}': {clean_model}")
-        return True
-
     def get_orchestrator_config(self) -> dict[str, Any]:
         return dict(self.orchestrator_config)
 
@@ -1234,40 +1193,6 @@ class AgentSettingsManager:
 
     def get_orchestrator_reasoning_model(self) -> str:
         return self.orchestrator_config.get("reasoning_model") or self.system_settings.get_default_reasoning_model()
-
-    def set_orchestrator_fast_model(self, model: str, save: bool = True) -> bool:
-        clean = str(model).strip()
-        if not clean:
-            return False
-        self.orchestrator_config["fast_model"] = clean
-        if save:
-            self.save_system_agent_settings()
-        logger.info(f"[SETTINGS] Updated orchestrator fast_model: {clean}")
-        return True
-
-    def set_orchestrator_reasoning_model(self, model: str, save: bool = True) -> bool:
-        clean = str(model).strip()
-        if not clean:
-            return False
-        self.orchestrator_config["reasoning_model"] = clean
-        if save:
-            self.save_system_agent_settings()
-        logger.info(f"[SETTINGS] Updated orchestrator reasoning_model: {clean}")
-        return True
-
-    def set_orchestrator_models(
-        self,
-        fast_model: str | None = None,
-        reasoning_model: str | None = None,
-        save: bool = True,
-    ) -> bool:
-        if fast_model:
-            self.orchestrator_config["fast_model"] = str(fast_model).strip()
-        if reasoning_model:
-            self.orchestrator_config["reasoning_model"] = str(reasoning_model).strip()
-        if save:
-            self.save_system_agent_settings()
-        return True
 
 
 settings_manager = AgentSettingsManager()

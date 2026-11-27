@@ -165,7 +165,6 @@ def _standalone_cli_isolation() -> Iterator[None]:
     from core.paths import AGENTS_RESOURCES_DIR, PRESIDIO_SKILL_EXCLUSIONS_FILE, PROJECT_ROOT
     from config_store.agent_settings import (
         BACKUP_FILE as REAL_BACKUP_FILE,
-        DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
         SETTINGS_FILE as REAL_SETTINGS_FILE,
         SYSTEM_AGENT_BACKUP_FILE as REAL_SYS_AGENT_BACKUP_FILE,
         SYSTEM_AGENT_SETTINGS_FILE as REAL_SYS_AGENT_SETTINGS_FILE,
@@ -229,12 +228,8 @@ def _standalone_cli_isolation() -> Iterator[None]:
             shutil.copy2(REAL_BACKUP_FILE, temp_backup)
         if REAL_SYS_AGENT_SETTINGS_FILE.exists():
             shutil.copy2(REAL_SYS_AGENT_SETTINGS_FILE, temp_sys_ag)
-        elif DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.exists():
-            shutil.copy2(DEFAULT_SYSTEM_AGENT_SETTINGS_FILE, temp_sys_ag)
         if REAL_SYS_AGENT_BACKUP_FILE.exists():
             shutil.copy2(REAL_SYS_AGENT_BACKUP_FILE, temp_sys_ag_bak)
-        elif DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.exists():
-            shutil.copy2(DEFAULT_SYSTEM_AGENT_SETTINGS_FILE, temp_sys_ag_bak)
 
         temp_wf = iso / "workflows"
         temp_wf.mkdir(parents=True, exist_ok=True)

@@ -126,7 +126,16 @@ class CredentialRedactionFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.args and isinstance(record.msg, str):
+        if (
+            record.name == "uvicorn.access"
+            and isinstance(record.args, tuple)
+            and len(record.args) == 5
+        ):
+            # Uvicorn's AccessFormatter.formatMessage() unpacks 5 positional args directly
+            if isinstance(record.msg, str):
+                record.msg = redact_text(record.msg)
+            record.args = _sanitize_obj(record.args)
+        elif record.args and isinstance(record.msg, str):
             try:
                 formatted = record.msg % record.args
                 record.msg = redact_text(formatted)

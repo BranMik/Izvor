@@ -62,7 +62,8 @@ def test_default_paths_exist_or_resolve_to_repo_layout():
     assert paths.ENGINE_WORKFLOWS_DIR == root / "engine" / "workflows"
     assert paths.ENGINE_SKILLS_DIR == root / "engine" / "skills" / "builtin"
     assert paths.ENGINE_AVATARS_DIR == root / "engine" / "avatars"
-    assert paths.DEFAULT_SYSTEM_AGENT_SETTINGS_FILE == root / "engine" / "settings" / "system_agent_settings.json"
+    assert paths.SYSTEM_AGENT_SETTINGS_FILE == root / "engine" / "settings" / "system_agent_settings.json"
+    assert not hasattr(paths, "DEFAULT_SYSTEM_AGENT_SETTINGS_FILE")
     assert paths.PROMPTS_DIR == root / "engine" / "prompts"
     assert paths.SYSTEM_AGENTS_DIR == root / "engine" / "prompts" / "system_agents"
     assert paths.PROMPT_TEMPLATES_DIR == root / "engine" / "prompts" / "templates"
@@ -80,7 +81,6 @@ def test_default_paths_exist_or_resolve_to_repo_layout():
     assert paths.DB_PATH == root / "data" / "izvor.db"
     assert paths.APP_SETTINGS_FILE == root / "data" / "state" / "app_settings.json"
     assert paths.PRESIDIO_SKILL_EXCLUSIONS_FILE == root / "data" / "state" / "presidio_skill_exclusions.json"
-    assert paths.SYSTEM_AGENT_SETTINGS_FILE == root / "data" / "settings" / "system_agent_settings.json"
     assert paths.AGENT_BACKUP_FILE == root / "data" / "backups" / "agent_settings_backup.json"
     assert paths.SYSTEM_AGENT_BACKUP_FILE == root / "data" / "backups" / "system_agent_settings_backup.json"
     assert paths.APP_BACKUP_FILE == root / "data" / "backups" / "app_settings_backup.json"

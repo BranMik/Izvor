@@ -1,23 +1,24 @@
 {
   "default_fast_model": "gemini/gemini-3.8-flash",
   "default_reasoning_model": "mistral/mistral-large-latest",
-  "internal_revisor_enabled": true,
-  "max_file_size_mb": 25.0,
+  "max_file_size_mb": 50.0,
   "rag": {
-    "max_chunk_chars": 3500,
+    "max_chunk_chars": 1500,
     "chunk_overlap_chars": 300,
     "min_chunk_chars": 80,
-    "default_top_k": 6,
+    "default_top_k": 3,
     "embedding_model": "gemini/gemini-embedding-001",
     "embedding_dim": 3072,
     "embedding_batch_size": 32,
     "pii_masking": "AT_RETRIEVAL",
     "guardrail_threshold": 0.85
   },
-  "_comment_workspace_write_blacklist_additional": "Automatic hardcoded protection blocks writes to .env, .git, data/settings/agent_settings.json, data/settings/app_settings.json, and data/settings/system_settings.json. Add any additional relative workspace paths or file patterns here to prevent unauthorized modifications.",
+  "_comment_workspace_write_blacklist_additional": "Automatic hardcoded protection blocks writes to .env, .git, config/settings/agent_settings.json, data/state/app_settings.json, and config/settings/system_settings.json. Add any additional relative workspace paths or file patterns here to prevent unauthorized modifications.",
   "workspace_write_blacklist_additional": [],
   "strict_privacy_mode_enabled": true,
   "log_level": "INFO",
+  "internal_revisor_enabled": true,
+  "shared_evidence_max_chars": 40000,
   "debate_turn_pacing_seconds": 3.0,
   "tool_call_loop_timeout_seconds": 60.0,
   "slack_post_pause_seconds": 2.0,
@@ -27,8 +28,8 @@
   "tool_call_num_retries": 2,
   "word_limit_grace_buffer": 50,
   "output_constraints": {
-    "default_max_words": 200,
-    "short_max_words": 100
+    "default_max_words": 150,
+    "short_max_words": 70
   },
   "system_agent_inference_timeout_seconds": 20.0,
   "system_agent_inference_retry_timeout_multiplier": 1.5,
@@ -46,7 +47,6 @@
   "slack_rate_limit_burst": 15.0,
   "pricing_benchmark_url": "https://artificialanalysis.ai/models",
   "web_fetch_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "max_write_bytes": 1048576,
   "web_security": {
     "max_url_length": 2048,
     "max_query_length": 1024,
@@ -70,8 +70,16 @@
     "enabled": true,
     "consecutive_threshold": 3
   },
+  "max_write_bytes": 1048576,
   "retention_checkpoints_days": 7,
   "retention_traces_days": 30,
   "retention_event_dedup_days": 1,
+  "retention_expired_grace_days": 7,
+  "retention_thread_sessions_days": 90,
+  "retention_spend_ledger_days": 0,
+  "retention_downloads_hours": 24,
+  "retention_flat_histories_days": 0,
+  "retention_audit_anchors_compact_enabled": true,
+  "retention_prune_interval_seconds": 86400.0,
   "mcp_servers": {}
 }

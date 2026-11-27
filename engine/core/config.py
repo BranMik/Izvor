@@ -19,7 +19,6 @@ from dotenv import load_dotenv
 
 from .paths import (
     AGENT_SETTINGS_FILE,
-    DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
     PROJECT_ROOT,
     PROMPTS_DIR,
     PYPROJECT_FILE,
@@ -245,8 +244,6 @@ def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
     """Loads system_agents mapping directly from engine/settings/system_agent_settings.json SSOT."""
     settings_file = SYSTEM_AGENT_SETTINGS_FILE
     if not settings_file.exists():
-        settings_file = DEFAULT_SYSTEM_AGENT_SETTINGS_FILE
-    if not settings_file.exists():
         return {}
     try:
         import json
@@ -262,7 +259,7 @@ def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
 
 
 def _load_agents_from_ssot() -> dict[str, dict[str, Any]]:
-    """Loads agents mapping directly from data/settings/agent_settings.json SSOT."""
+    """Loads agents mapping directly from config/settings/agent_settings.json SSOT."""
     settings_file = AGENT_SETTINGS_FILE
     if not settings_file.exists():
         return {}
@@ -283,8 +280,6 @@ def _load_orchestrator_from_ssot() -> dict[str, Any]:
     """Loads orchestrator mapping directly from engine/settings/system_agent_settings.json SSOT."""
     settings_file = SYSTEM_AGENT_SETTINGS_FILE
     if not settings_file.exists():
-        settings_file = DEFAULT_SYSTEM_AGENT_SETTINGS_FILE
-    if not settings_file.exists():
         return {}
     try:
         import json
@@ -299,14 +294,14 @@ def _load_orchestrator_from_ssot() -> dict[str, Any]:
     return {}
 
 
-# Shared in-memory configuration maps (populated from data/agent_settings.json SSOT)
+# Shared in-memory configuration maps (populated from config/settings/agent_settings.json SSOT)
 AGENTS_CONFIG: dict[str, dict[str, Any]] = _load_agents_from_ssot()
 SYSTEM_AGENTS_CONFIG: dict[str, dict[str, Any]] = _load_system_agents_from_ssot()
 ORCHESTRATOR_CONFIG: dict[str, Any] = _load_orchestrator_from_ssot()
 
 
 def _load_default_models_from_ssot() -> tuple[str, str]:
-    """Loads default_fast_model and default_reasoning_model from data/settings/system_settings.json SSOT."""
+    """Loads default_fast_model and default_reasoning_model from config/settings/system_settings.json SSOT."""
     settings_file = SYSTEM_SETTINGS_FILE
     fast_default = "gemini/gemini-3.8-flash"
     reasoning_default = "mistral/mistral-large-latest"

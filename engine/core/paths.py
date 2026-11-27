@@ -80,9 +80,8 @@ RAG_KNOWLEDGE_DIR = _resolve_env_path("IZVOR_RAG_KNOWLEDGE_DIR", CONFIG_DIR / "r
 
 # 2. engine/ Pillar (Immutable Core Engine & Built-in System Assets)
 ENGINE_SETTINGS_DIR = _resolve_env_path("IZVOR_ENGINE_SETTINGS_DIR", ENGINE_DIR / "settings")
-DEFAULT_SYSTEM_AGENT_SETTINGS_FILE = ENGINE_SETTINGS_DIR / "system_agent_settings.json"
 SYSTEM_AGENT_SETTINGS_FILE = _resolve_env_path(
-    "IZVOR_SYSTEM_AGENT_SETTINGS_FILE", DATA_DIR / "settings" / "system_agent_settings.json"
+    "IZVOR_SYSTEM_AGENT_SETTINGS_FILE", ENGINE_SETTINGS_DIR / "system_agent_settings.json"
 )
 PROMPTS_DIR = _resolve_env_path("IZVOR_PROMPTS_DIR", ENGINE_DIR / "prompts")
 SYSTEM_AGENTS_DIR = PROMPTS_DIR / "system_agents"
@@ -161,7 +160,6 @@ __all__ = [
     "CONFIG_DIR",
     "DATA_DIR",
     "DB_PATH",
-    "DEFAULT_SYSTEM_AGENT_SETTINGS_FILE",
     "DOWNLOADS_DIR",
     "ENGINE_AVATARS_DIR",
     "ENGINE_DIR",

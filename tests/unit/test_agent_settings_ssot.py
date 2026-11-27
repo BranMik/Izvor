@@ -329,13 +329,22 @@ def test_dynamic_config_getter_resolution():
         assert core.config.get_orchestrator_fast_model() == "gemini/gemini-3.8-flash"
         assert core.config.get_orchestrator_reasoning_model() == "mistral/mistral-large-latest"
 
-        settings_manager.set_orchestrator_models(
-            fast_model="groq/llama-3.3-70b-versatile-dynamic",
-            reasoning_model="anthropic/claude-3-7-sonnet-dynamic",
-            save=False,
-        )
+        settings_manager.orchestrator_config = {
+            "fast_model": "groq/llama-3.3-70b-versatile-dynamic",
+            "reasoning_model": "anthropic/claude-3-7-sonnet-dynamic",
+            "username": "Orchestrator",
+            "icon_url": "static/image_99.png",
+        }
         assert core.config.get_orchestrator_fast_model() == "groq/llama-3.3-70b-versatile-dynamic"
         assert core.config.get_orchestrator_reasoning_model() == "anthropic/claude-3-7-sonnet-dynamic"
+        for removed_mutator in (
+            "save_system_agent_settings",
+            "set_system_agent_model",
+            "set_orchestrator_fast_model",
+            "set_orchestrator_reasoning_model",
+            "set_orchestrator_models",
+        ):
+            assert not hasattr(settings_manager, removed_mutator)
     finally:
         settings_manager.orchestrator_config = original_orchestrator
 
@@ -525,8 +534,8 @@ def test_all_ssot_icon_urls_resolve_to_served_avatar_files():
     from core.paths import (
         AGENT_SETTINGS_FILE,
         AVATARS_DIR,
-        DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
         ENGINE_AVATARS_DIR,
+        SYSTEM_AGENT_SETTINGS_FILE,
     )
 
     served_prefixes = ("avatars/", "static/")
@@ -544,7 +553,7 @@ def test_all_ssot_icon_urls_resolve_to_served_avatar_files():
                 yield from iter_icon_urls(v)
 
     checked = 0
-    for settings_file in (AGENT_SETTINGS_FILE, DEFAULT_SYSTEM_AGENT_SETTINGS_FILE):
+    for settings_file in (AGENT_SETTINGS_FILE, SYSTEM_AGENT_SETTINGS_FILE):
         data = json.loads(Path(settings_file).read_text(encoding="utf-8"))
         for icon_url in iter_icon_urls(data):
             assert isinstance(icon_url, str) and icon_url, f"{settings_file}: bad icon_url {icon_url!r}"
@@ -597,4 +606,74 @@ def test_discussion_scribe_system_agent_ssot_loaded():
     assert "DiscussionScribe" in SYSTEM_AGENTS_CONFIG
     assert settings_manager.system_agents_config["DiscussionScribe"]["model"] == "mistral/mistral-small-latest"
     assert get_system_agent_model("DiscussionScribe") == "mistral/mistral-small-latest"
+
+
+def test_system_agent_settings_prefers_primary_and_fails_over_to_backup_without_corrupting_backup(tmp_path):
+    """Primary engine system_agent_settings.json wins over stale backup; failover leaves backup untouched."""
+    from config_store.agent_settings import AgentSettingsManager
+    from core.paths import AGENT_BACKUP_FILE, AGENT_SETTINGS_FILE, WORKFLOWS_DIR
+
+    agent_settings = tmp_path / "agent_settings.json"
+    agent_backup = tmp_path / "agent_settings_backup.json"
+    agent_settings.write_text(AGENT_SETTINGS_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+    agent_backup.write_text(AGENT_BACKUP_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    primary_sys = tmp_path / "system_agent_settings.json"
+    backup_sys = tmp_path / "system_agent_settings_backup.json"
+
+    primary_payload = {
+        "orchestrator": {"fast_model": "primary/fast", "reasoning_model": "primary/reasoning"},
+        "system_agents": {
+            "InternalRevisor": {
+                "username": "InternalRevisor",
+                "model": "primary/revisor",
+                "displayname": "Internal Revisor",
+                "icon_url": "avatars/image_98.png",
+                "is_short_output": True,
+                "skills": [],
+            }
+        },
+    }
+    stale_backup_payload = {
+        "orchestrator": {"fast_model": "backup/fast", "reasoning_model": "backup/reasoning"},
+        "system_agents": {
+            "InternalRevisor": {
+                "username": "InternalRevisor",
+                "model": "backup/revisor",
+                "displayname": "Internal Revisor",
+                "icon_url": "static/image_99.png",
+                "is_short_output": True,
+                "skills": [],
+            }
+        },
+    }
+
+    primary_sys.write_text(json.dumps(primary_payload), encoding="utf-8")
+    backup_sys.write_text(json.dumps(stale_backup_payload), encoding="utf-8")
+
+    mgr = AgentSettingsManager(
+        settings_file=agent_settings,
+        backup_file=agent_backup,
+        system_agent_settings_file=primary_sys,
+        system_agent_backup_file=backup_sys,
+        workflows_dir=WORKFLOWS_DIR,
+    )
+    assert mgr.orchestrator_config["fast_model"] == "primary/fast"
+    assert mgr.system_agents_config["InternalRevisor"]["model"] == "primary/revisor"
+
+    # Missing primary fails over to backup without mutating backup
+    primary_sys.unlink()
+    backup_before = backup_sys.read_text(encoding="utf-8")
+    mgr.load()
+    assert mgr.orchestrator_config["fast_model"] == "backup/fast"
+    assert mgr.system_agents_config["InternalRevisor"]["model"] == "backup/revisor"
+    assert backup_sys.read_text(encoding="utf-8") == backup_before
+
+    # Invalid JSON primary also fails over to backup without mutating backup
+    primary_sys.write_text("{corrupt json", encoding="utf-8")
+    mgr.load()
+    assert mgr.orchestrator_config["fast_model"] == "backup/fast"
+    assert mgr.system_agents_config["InternalRevisor"]["model"] == "backup/revisor"
+    assert backup_sys.read_text(encoding="utf-8") == backup_before
+
 

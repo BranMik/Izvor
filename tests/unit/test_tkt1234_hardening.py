@@ -242,3 +242,42 @@ def test_logging_filters_basic_auth_percent_args_and_third_party_loggers():
         target_logger = logging.getLogger(target_name)
         assert any(isinstance(f, CredentialRedactionFilter) for f in target_logger.filters)
 
+
+def test_uvicorn_access_record_preserves_5_tuple_and_redacts_query_secrets():
+    """CredentialRedactionFilter preserves uvicorn.access 5-tuple args while redacting query secrets."""
+    from uvicorn.logging import AccessFormatter
+
+    flt = CredentialRedactionFilter()
+    rec = logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=(
+            "127.0.0.1:12345",
+            "POST",
+            "/slack/events?token=xoxb-123456789012-123456789012-abcdefghijklmnopqrstuvwx&key=sk-proj-1234567890123456789012345678",
+            "1.1",
+            200,
+        ),
+        exc_info=None,
+    )
+    assert flt.filter(rec) is True
+    assert isinstance(rec.args, tuple)
+    assert len(rec.args) == 5
+    assert isinstance(rec.args[4], int) and rec.args[4] == 200
+    assert "xoxb-" not in rec.args[2]
+    assert "sk-proj-" not in rec.args[2]
+    assert "[REDACTED_SLACK_TOKEN]" in rec.args[2]
+    assert "[REDACTED_API_KEY]" in rec.args[2]
+
+    formatted = AccessFormatter(
+        fmt='%(client_addr)s - "%(request_line)s" %(status_code)s',
+        use_colors=False,
+    ).format(rec)
+    assert '127.0.0.1:12345 - "POST /slack/events?token=[REDACTED_SLACK_TOKEN]&key=[REDACTED_API_KEY] HTTP/1.1" 200 OK' == formatted
+    assert "xoxb-" not in formatted
+    assert "sk-proj-" not in formatted
+
+

@@ -10,7 +10,6 @@ import pytest
 
 from config_store.agent_settings import (
     BACKUP_FILE as REAL_BACKUP_FILE,
-    DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
     SETTINGS_FILE as REAL_SETTINGS_FILE,
     SYSTEM_AGENT_BACKUP_FILE as REAL_SYSTEM_AGENT_BACKUP_FILE,
     SYSTEM_AGENT_SETTINGS_FILE as REAL_SYSTEM_AGENT_SETTINGS_FILE,
@@ -140,14 +139,8 @@ def _session_config_templates():
     )
     from services.pricing_service import pricing_service
 
-    sys_agent_settings_tpl = (
-        _read_optional_template(REAL_SYSTEM_AGENT_SETTINGS_FILE)
-        or _read_optional_template(DEFAULT_SYSTEM_AGENT_SETTINGS_FILE)
-    )
-    sys_agent_backup_tpl = (
-        _read_optional_template(REAL_SYSTEM_AGENT_BACKUP_FILE)
-        or _read_optional_template(DEFAULT_SYSTEM_AGENT_SETTINGS_FILE)
-    )
+    sys_agent_settings_tpl = _read_optional_template(REAL_SYSTEM_AGENT_SETTINGS_FILE)
+    sys_agent_backup_tpl = _read_optional_template(REAL_SYSTEM_AGENT_BACKUP_FILE)
 
     workflow_files: dict[str, tuple[bytes, int, int]] = {}
     wf_dir = REAL_WORKFLOWS_DIR
