@@ -29,10 +29,11 @@
    - [8.4 Adding & Modifying Workflows (`config/workflows/`)](#84-adding--modifying-workflows-configworkflows)
    - [8.5 Adding & Updating RAG Knowledge Documents (`config/rag_knowledge/`)](#85-adding--updating-rag-knowledge-documents-configrag_knowledge)
    - [8.6 Managing Agent Workspace Resources (`agents_resources/`)](#86-managing-agent-workspace-resources-agents_resources)
-9. [Debugging & Troubleshooting](#9-debugging--troubleshooting)
-10. [Documentation Hub](#10-documentation-hub)
-11. [License](#11-license)
-12. [Disclaimer & Limitation of Liability](#12-disclaimer--limitation-of-liability)
+9. [Testing, E2E & AI Evals](#9-testing-e2e--ai-evals)
+10. [Debugging & Troubleshooting](#10-debugging--troubleshooting)
+11. [Documentation Hub](#11-documentation-hub)
+12. [License](#12-license)
+13. [Disclaimer & Limitation of Liability](#13-disclaimer--limitation-of-liability)
 
 ---
 
@@ -410,7 +411,47 @@ All implementer customization lives in **`config/`** and **`agents_resources/`**
 
 ---
 
-## 9. Debugging & Troubleshooting
+## 9. Testing, E2E & AI Evals
+
+Izvor uses a **4-tier verification pyramid** — fast offline unit/integration tests by default, plus explicit E2E behavioral simulations and live AI quality/accuracy evaluations:
+
+- **Tier 1 & 2 — Unit & Integration Tests (`tests/unit/`, `tests/integration/`)**: Offline, zero-cost tests guarded by fail-closed Slack/LLM/DB isolation fixtures ([`tests/conftest.py`](tests/conftest.py)), AST DAG checks, and code hygiene gates.
+  ```bash
+  # Parallel regression suite (recommended)
+  cmd /c .venv\Scripts\python.exe -u -m pytest -n auto --dist loadscope
+
+  # Sequential execution
+  cmd /c .venv\Scripts\python.exe -u -m pytest
+
+  # Static CI quality gates (Ruff + Mypy)
+  cmd /c .venv\Scripts\python.exe -m ruff check .
+  cmd /c .venv\Scripts\python.exe -m mypy engine/core engine/orchestration/protocols.py
+  ```
+- **Tier 3 — E2E Behavioral Simulation Harness (`tests/e2e/`)**: Exercises Slack HMAC webhook ingress, Block Kit interactivity, HITL checkpoints, and topologies end-to-end (live LLMs by default, or `--mock` for zero-cost offline simulation):
+  ```bash
+  cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --all --mock
+  cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --case TC-01
+  cmd /c .venv\Scripts\python.exe -u -m pytest tests/e2e/test_e2e_suite.py -v --mock
+  ```
+- **Tier 4 — Live AI Evaluation & Rating Suite (`tests/evals/`)**: Evaluates real LLM & embedding behavior across **4 curated suites** (`debate` 1–5 rubric LLM-as-judge, `revisor` hallucination P/R/F1, `rag` Recall@K/MRR/scope isolation, and `guardrail` holdout P/R/F1) with isolated temp state, a `$1.00` spend cap, and baseline regression diffing:
+  ```bash
+  # Run all 4 live eval suites and save a baseline snapshot
+  cmd /c .venv\Scripts\python.exe -u -m tests.evals.runner --suite all --max-cost-usd 1.00 --save-baseline baseline
+
+  # Targeted low-cost smoke check
+  cmd /c .venv\Scripts\python.exe -u -m tests.evals.runner --suite rag,guardrail --case RAG-01,GRD-01 --max-cost-usd 0.25
+
+  # Compare against baseline and fail on regression
+  cmd /c .venv\Scripts\python.exe -u -m tests.evals.runner --suite all --compare-baseline baseline --fail-on-regression
+
+  # Via pytest
+  cmd /c .venv\Scripts\python.exe -u -m pytest tests/evals/test_evals_suite.py -v
+  ```
+*(See [Test Suite Guide](docs/development-and-testing/test-suite.md), [E2E Testing Harness](docs/development-and-testing/e2e-testing-harness.md), and [Live AI Evaluation & Rating Suite](docs/development-and-testing/eval-suite.md).)*
+
+---
+
+## 10. Debugging & Troubleshooting
 
 ### 1. App starts (`Application Startup Complete`), you trigger it in Slack, and nothing happens in the terminal
 
@@ -471,7 +512,7 @@ Slack fetches avatar URLs server-side using `BASE_AVATAR_URL` + `avatars/...` ([
 
 ---
 
-## 10. Documentation Hub
+## 11. Documentation Hub
 
 See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) for deep-dive references:
 
@@ -480,11 +521,11 @@ See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehe
 - **Architecture & Engine**: [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) · [System Design](docs/architecture/system-design.md) · [Orchestration Pipeline](docs/architecture/orchestration-pipeline.md) · [Topologies & Routing](docs/architecture/topologies-and-routing.md) · [Thread State & Memory](docs/architecture/thread-state-memory.md) · [Spend Governance](docs/architecture/spend-governance.md)
 - **Agents, Skills & Tools**: [Personas Catalog](docs/agents-and-skills/personas-catalog.md) · [Skills Framework](docs/agents-and-skills/skills-framework.md) · [Built-in Skills Reference](docs/agents-and-skills/built-in-skills-reference.md) · [MCP & Tools](docs/agents-and-skills/mcp-and-tools.md)
 - **Administration & Security**: [Slack App Home](docs/administration-and-security/slack-app-home.md) · [Security & Auth](docs/administration-and-security/security-and-auth.md) · [Audit Logging Integrity](docs/administration-and-security/audit-logging-integrity.md) · [REST API Reference](docs/administration-and-security/rest-api-reference.md)
-- **Development & Testing**: [Test Suite Guide](docs/development-and-testing/test-suite.md) · [E2E Testing Harness](docs/development-and-testing/e2e-testing-harness.md) · [Contributing](docs/development-and-testing/contributing.md)
+- **Development & Testing**: [Test Suite Guide](docs/development-and-testing/test-suite.md) · [E2E Testing Harness](docs/development-and-testing/e2e-testing-harness.md) · [AI Evaluation & Rating Suite](docs/development-and-testing/eval-suite.md) · [Contributing](docs/development-and-testing/contributing.md)
 
 ---
 
-## 11. License
+## 12. License
 
 Izvor is source-available under the **Business Source License 1.1 (`BUSL-1.1`)** — see the [LICENSE](LICENSE) file for full terms.
 
@@ -494,7 +535,7 @@ Izvor is source-available under the **Business Source License 1.1 (`BUSL-1.1`)**
 
 ---
 
-## 12. Disclaimer & Limitation of Liability
+## 13. Disclaimer & Limitation of Liability
 
 > [!IMPORTANT]
 > This section provides operational and risk notices accompanying this repository. Nothing in this section modifies or supersedes the terms of [LICENSE](LICENSE) (`BUSL-1.1`).

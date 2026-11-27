@@ -58,6 +58,7 @@ norecursedirs = [
     "data",
     "config",
     "tests/e2e",
+    "tests/evals",
     ".venv",
     "agents_resources",
     "system_resources",

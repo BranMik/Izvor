@@ -6,10 +6,11 @@ This document details the test suites, testing practices, and quality assurance 
 
 ## 🧪 Test Suite Overview
 
-Izvor organizes its tests into a clean, 3-tier hierarchy:
-1. **Unit Tests** ([`tests/unit/`](file:///tests/unit)): **71** fast, isolated component test files verifying models, parsers, policies, security sanitizers, pricing logic, and architectural rules.
-2. **Integration Tests** ([`tests/integration/`](file:///tests/integration)): **38** multi-component test files verifying SQLite engines, Turn Pipeline lifecycle, Slack interactivity endpoints, RAG Vector DB, HITL checkpoints, and multi-agent loops (combined default suite: **109 files, 1,098 passing tests**).
+Izvor organizes its tests into a clean, 4-tier hierarchy:
+1. **Unit Tests** ([`tests/unit/`](file:///tests/unit)): Fast, isolated component test files verifying models, parsers, policies, security sanitizers, pricing logic, eval framework schemas/scorers, and architectural rules.
+2. **Integration Tests** ([`tests/integration/`](file:///tests/integration)): Multi-component test files verifying SQLite engines, Turn Pipeline lifecycle, Slack interactivity endpoints, RAG Vector DB, HITL checkpoints, and multi-agent loops.
 3. **E2E Behavioral Simulation Harness** ([`tests/e2e/`](file:///tests/e2e)): 28 comprehensive Slack event, WebClient interception, and dialectical scenario simulations (**8** harness modules, executed explicitly via `test_e2e_suite.py` or `tests.e2e.runner`).
+4. **Live AI Evaluation & Rating Suite** ([`tests/evals/`](file:///tests/evals)): Live-LLM & live-embedding quality ratings (1–5 LLM-as-judge rubrics, InternalRevisor precision/recall/F1, RAG Recall@K/MRR/scope isolation, and Guardrail holdout metrics) with cost budget circuit breakers and baseline diffing. See the [AI Evaluation & Rating Suite Guide](eval-suite.md).
 
 ```
 tests/
@@ -55,6 +56,16 @@ tests/
     ├── test_e2e_suite.py                      # Pytest runner wrapper
     ├── workspace_adapter.py                   # In-memory workspace adapter
     └── SLACK_BEHAVIOURAL_TEST_CASES.md        # Comprehensive scenario specifications
+└── evals/                                     # Tier 4: Live AI evaluation & rating suite
+    ├── conftest.py                            # Unlocks live LLM/embedding calls under pytest
+    ├── datasets/                              # Curated JSONL golden benchmarks (debate, revisor, rag, guardrail)
+    ├── isolation.py                           # Temporary path/DB/LanceDB isolation context manager
+    ├── models.py                              # Pydantic evaluation reports, RubricJudgment & SpendTracker
+    ├── reporting.py                           # JSON/Markdown reports & baseline regression diffing
+    ├── runner.py                              # CLI orchestrator (`python -m tests.evals.runner`)
+    ├── scorers.py                             # Classification, retrieval & async LLM-as-judge scorers
+    ├── suites/                                # Modular suite runners (debate, revisor, rag, guardrail)
+    └── test_evals_suite.py                    # Pytest integration wrapper
 ```
 
 ---
@@ -62,7 +73,7 @@ tests/
 ## 🏃 Running the Tests
 
 ### 1. Default Regression Suite (Unit & Integration)
-By default, running `pytest` automatically executes all tests in `tests/unit/` and `tests/integration/`, while cleanly bypassing `tests/e2e/`:
+By default, running `pytest` automatically executes all tests in `tests/unit/` and `tests/integration/`, while cleanly bypassing `tests/e2e/` and `tests/evals/`:
 
 ```bash
 # Parallel execution with pytest-xdist (recommended; ~2m20s on Windows 8-core)
@@ -97,7 +108,24 @@ cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --all
 cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --case TC-01
 ```
 
-### 3. Run Specific Subsystems
+### 3. Running Live AI Evaluation & Rating Suite
+The live evaluation suite measures graded debate quality (1–5 LLM-as-judge), InternalRevisor precision/recall/F1, RAG Recall@K/MRR/scope isolation, and Guardrail holdout accuracy against real models (see [AI Evaluation & Rating Suite](eval-suite.md)):
+
+```bash
+# CLI runner across all 4 suites with $1.00 spend cap and baseline snapshot
+cmd /c .venv\Scripts\python.exe -u -m tests.evals.runner --suite all --max-cost-usd 1.00 --save-baseline baseline
+
+# Targeted low-cost smoke run
+cmd /c .venv\Scripts\python.exe -u -m tests.evals.runner --suite rag,guardrail --case RAG-01,GRD-01 --max-cost-usd 0.25
+
+# Compare against saved baseline and fail on >5% score regression
+cmd /c .venv\Scripts\python.exe -u -m tests.evals.runner --suite all --compare-baseline baseline --regression-tolerance 0.05 --fail-on-regression
+
+# Via pytest:
+cmd /c .venv\Scripts\python.exe -u -m pytest tests/evals/test_evals_suite.py -v
+```
+
+### 4. Run Specific Subsystems
 ```bash
 # Run security, tool sandboxing & authentication tests
 cmd /c .venv\Scripts\python.exe -u -m pytest tests/unit/test_admin_auth.py tests/integration/test_web_tools_security.py tests/integration/test_local_tools_security.py tests/integration/test_slack_interactivity.py

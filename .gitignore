@@ -53,6 +53,7 @@ system_resources/*
 agents_resources/*
 !agents_resources/.gitkeep
 tests/e2e/.test_run_counter
+tests/evals/results/
 
 # IDE / Editor
 .vscode/

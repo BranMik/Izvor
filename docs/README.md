@@ -39,7 +39,8 @@ docs/
 │   └── thread-notes-and-exports.md        # Flat Histories, Scribe Summaries & Exports
 └── development-and-testing/               # Developer Guide & Testing
     ├── e2e-testing-harness.md             # Hybrid Interceptor, Protocol Client & Scenarios
-    ├── test-suite.md                      # Running 109 Unit/Integration Files (1,098 Tests), Parallel CI, Fail-Closed Guards & Hygiene
+    ├── eval-suite.md                      # Live AI Evaluation & Rating Suite (Debate, Revisor, RAG, Guardrail)
+    ├── test-suite.md                      # Running Unit/Integration, E2E & AI Evals, Parallel CI, Fail-Closed Guards & Hygiene
     └── contributing.md                    # Engineering Guidelines, Policies & Code Standards
 ```
 
@@ -52,4 +53,4 @@ docs/
 - **Exploring Personas?** Browse the [Personas Catalog](agents-and-skills/personas-catalog.md) and [Built-in Skills Reference](agents-and-skills/built-in-skills-reference.md).
 - **Understanding Orchestration?** Read [System Design](architecture/system-design.md) and [Topologies & Routing](architecture/topologies-and-routing.md).
 - **Securing Your Deployment?** Review [Security & Authentication](administration-and-security/security-and-auth.md) and [Audit Logging Integrity](administration-and-security/audit-logging-integrity.md).
-- **Running Tests?** See the [Test Suite Guide](development-and-testing/test-suite.md) and [E2E Testing Harness](development-and-testing/e2e-testing-harness.md).
+- **Running Tests & Evals?** See the [Test Suite Guide](development-and-testing/test-suite.md), [E2E Testing Harness](development-and-testing/e2e-testing-harness.md), and [Live AI Evaluation & Rating Suite](development-and-testing/eval-suite.md).
