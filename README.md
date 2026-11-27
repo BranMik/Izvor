@@ -427,10 +427,19 @@ Izvor uses a **4-tier verification pyramid** — fast offline unit/integration t
   cmd /c .venv\Scripts\python.exe -m ruff check .
   cmd /c .venv\Scripts\python.exe -m mypy engine/core engine/orchestration/protocols.py
   ```
-- **Tier 3 — E2E Behavioral Simulation Harness (`tests/e2e/`)**: Exercises Slack HMAC webhook ingress, Block Kit interactivity, HITL checkpoints, and topologies end-to-end (live LLMs by default, or `--mock` for zero-cost offline simulation):
+- **Tier 3 — E2E Behavioral Simulation Harness (`tests/e2e/`)**: Exercises Slack HMAC webhook ingress, Block Kit interactivity, HITL checkpoints, and topologies end-to-end (live LLMs by default, `--mock` for zero-cost offline simulation, or `--live-slack` to stream real messages, avatars, and summary threads into a live Slack test channel):
   ```bash
-  cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --all --mock
+  # Offline simulation (all scenarios, zero LLM/Slack cost)
+  cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --mock
+
+  # Single scenario with live LLMs (in-memory Slack bus)
   cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --case TC-01
+
+  # Live Slack + live LLMs (uses SLACK_TEST_CHANNEL_ID from .env, or pass --channel <ID>)
+  cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --live-slack --case TC-01
+  cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --live-slack --channel C0123456789 --pacing 1.0
+
+  # Via pytest
   cmd /c .venv\Scripts\python.exe -u -m pytest tests/e2e/test_e2e_suite.py -v --mock
   ```
 - **Tier 4 — Live AI Evaluation & Rating Suite (`tests/evals/`)**: Evaluates real LLM & embedding behavior across **4 curated suites** (`debate` 1–5 rubric LLM-as-judge, `revisor` hallucination P/R/F1, `rag` Recall@K/MRR/scope isolation, and `guardrail` holdout P/R/F1) with isolated temp state, a `$1.00` spend cap, and baseline regression diffing:
