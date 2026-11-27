@@ -2,7 +2,7 @@
   "system_agents": {
     "InternalRevisor": {
       "username": "InternalRevisor",
-      "model": "mistral/mistral-small-latest",
+      "model": "anthropic/claude-haiku-5-5",
       "displayname": "Internal Revisor",
       "icon_url": "avatars/image_98.png",
       "is_short_output": true,
