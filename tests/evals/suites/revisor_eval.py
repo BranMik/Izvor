@@ -188,6 +188,7 @@ async def run_revisor_suite(
                         "expected_flag": expected_flag,
                         "predicted_flag": predicted_flag,
                         "category": str(case.get("category", "")),
+                        "language": str(case.get("language", "en")),
                     },
                     deterministic_checks={"verdict_matches_label": passed},
                     details=warning_text[:240] if warning_text else (error_msg or "NO_HALLUCINATION"),

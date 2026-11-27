@@ -59,11 +59,20 @@ def test_golden_datasets_schemas_and_balance():
         assert isinstance(c["rubric_dimensions"], list) and len(c["rubric_dimensions"]) >= 3
 
     revisor = _load_jsonl(DATASETS_DIR / "revisor.jsonl")
-    assert len(revisor) == 12
-    assert len({c["id"] for c in revisor}) == 12
-    assert sum(1 for c in revisor if c["expected_flag"] is True) == 6
-    assert sum(1 for c in revisor if c["expected_flag"] is False) == 6
+    assert len(revisor) == 22
+    assert len({c["id"] for c in revisor}) == 22
+    assert sum(1 for c in revisor if c["expected_flag"] is True) == 11
+    assert sum(1 for c in revisor if c["expected_flag"] is False) == 11
+    en_cases = [c for c in revisor if c.get("language") == "en"]
+    hr_cases = [c for c in revisor if c.get("language") == "hr"]
+    assert len(en_cases) == 12
+    assert sum(1 for c in en_cases if c["expected_flag"] is True) == 6
+    assert sum(1 for c in en_cases if c["expected_flag"] is False) == 6
+    assert len(hr_cases) == 10
+    assert sum(1 for c in hr_cases if c["expected_flag"] is True) == 5
+    assert sum(1 for c in hr_cases if c["expected_flag"] is False) == 5
     for c in revisor:
+        assert c["language"] in ("en", "hr")
         assert c["initial_prompt"]
         assert c["candidate_message"]
         assert isinstance(c["expected_flag"], bool)
