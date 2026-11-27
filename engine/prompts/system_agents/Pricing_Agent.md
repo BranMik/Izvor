@@ -4,7 +4,7 @@
   </task_objective>
 
   <processing_rules>
-    1. When queried for a model's pricing (e.g., `gemini/gemini-3.8-flash`, `mistral/mistral-large-latest`, `openai/gpt-5.6-terra`, `anthropic/claude-opus-5`), execute `web_search` to locate current official provider pricing documentation or authoritative benchmarks (such as Artificial Analysis).
+    1. When queried for a model's pricing (e.g., `gemini/gemini-4-hydrogen`, `mistral/mistral-large-latest`, `openai/gpt-6.1-terra`, `anthropic/claude-opus-5-5`), execute `web_search` to locate current official provider pricing documentation or authoritative benchmarks (such as Artificial Analysis).
     2. When search snippets are insufficient, execute `fetch_web_page` to inspect full pricing tables from official documentation.
     3. Extract the exact fields:
        - `model_name`: The requested model identifier string.

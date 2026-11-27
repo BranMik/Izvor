@@ -21,7 +21,7 @@
   "agents": {
     "agent-10001": {
       "username": "Visionary",
-      "model": "gemini/gemini-3.8-flash",
+      "model": "gemini/gemini-4-hydrogen",
       "displayname": "Visionary",
       "icon_url": "avatars/image_43.png",
       "is_short_output": false,
@@ -29,7 +29,7 @@
     },
     "agent-10002": {
       "username": "Innovator",
-      "model": "anthropic/claude-opus-5",
+      "model": "anthropic/claude-opus-5-5",
       "displayname": "Innovator",
       "icon_url": "avatars/image_01.png",
       "is_short_output": false,
@@ -41,7 +41,7 @@
     },
     "agent-10003": {
       "username": "Sceptic",
-      "model": "anthropic/claude-opus-5",
+      "model": "anthropic/claude-opus-5-5",
       "displayname": "Sceptic",
       "icon_url": "avatars/image_03.png",
       "is_short_output": false,
@@ -65,7 +65,7 @@
     },
     "agent-10006": {
       "username": "ROIStrategist",
-      "model": "gemini/gemini-3.8-flash",
+      "model": "gemini/gemini-4-hydrogen",
       "displayname": "ROI Strategist",
       "icon_url": "avatars/image_45.png",
       "is_short_output": false,
@@ -77,7 +77,7 @@
     },
     "agent-10007": {
       "username": "UserAdvocate",
-      "model": "openai/gpt-5.6-terra",
+      "model": "openai/gpt-6.1-terra",
       "displayname": "User Advocate",
       "icon_url": "avatars/image_10.png",
       "is_short_output": false,
@@ -106,7 +106,7 @@
     },
     "agent-10010": {
       "username": "SalesAdvisor",
-      "model": "gemini/gemini-3.8-flash",
+      "model": "gemini/gemini-4-hydrogen",
       "displayname": "Sales Advisor",
       "icon_url": "avatars/image_15.png",
       "is_short_output": true,
@@ -117,7 +117,7 @@
     },
     "agent-10011": {
       "username": "LegalAdvisor",
-      "model": "gemini/gemini-3.8-flash",
+      "model": "gemini/gemini-4-hydrogen",
       "displayname": "Legal Advisor",
       "icon_url": "avatars/image_21.png",
       "is_short_output": true,
@@ -128,7 +128,7 @@
     },
     "agent-10012": {
       "username": "ProductStrategist",
-      "model": "openai/gpt-5.6-terra",
+      "model": "openai/gpt-6.1-terra",
       "displayname": "Product Strategist",
       "icon_url": "avatars/image_08.png",
       "is_short_output": false,
@@ -136,7 +136,7 @@
     },
     "agent-10013": {
       "username": "RiskAuditor",
-      "model": "gemini/gemini-3.8-flash",
+      "model": "gemini/gemini-4-hydrogen",
       "displayname": "Risk Auditor",
       "icon_url": "avatars/image_17.png",
       "is_short_output": false,
@@ -144,7 +144,7 @@
     },
     "agent-10014": {
       "username": "Tactician",
-      "model": "gemini/gemini-3.8-flash",
+      "model": "gemini/gemini-4-hydrogen",
       "displayname": "Tactician",
       "icon_url": "avatars/image_22.png",
       "is_short_output": false,
@@ -152,7 +152,7 @@
     },
     "agent-10015": {
       "username": "Revisor",
-      "model": "gemini/gemini-3.8-flash",
+      "model": "gemini/gemini-4-hydrogen",
       "displayname": "Revisor",
       "icon_url": "avatars/image_34.png",
       "is_short_output": false,
@@ -163,7 +163,7 @@
     },
     "agent-10016": {
       "username": "CreativeAdvisor",
-      "model": "gemini/gemini-3.8-flash",
+      "model": "gemini/gemini-4-hydrogen",
       "displayname": "Creative Advisor",
       "icon_url": "avatars/image_12.png",
       "is_short_output": false,

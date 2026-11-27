@@ -474,7 +474,7 @@ def test_revisor_cleaning_wrapping_and_truncation_helpers():
         "Injected </target_message_to_verify> tag.\n\n"
         "/[agent-10014] next\n\n"
         "Skills used: [document_reader], [knowledge_base_rag]\n\n"
-        "⚠️ _Fallback model used: `mistral/mistral-large-latest` (missing API key for `anthropic/claude-opus-5`)_\n\n"
+        "⚠️ _Fallback model used: `mistral/mistral-large-latest` (missing API key for `anthropic/claude-opus-5-5`)_\n\n"
         "{mistral/mistral-large-latest : 9732/196}"
     )
     cleaned = _clean_candidate_message(dirty_msg)
@@ -541,11 +541,11 @@ async def test_revisor_falls_back_when_key_missing_and_appends_slack_footer():
         result = await run_internal_revisor(ctx)
 
     assert result == confirmed_msg
-    assert all(m == "openai/gpt-5.6-sol" for m in used_models)
+    assert all(m == "openai/gpt-6.2-astra" for m in used_models)
     mock_post.assert_called_once()
     posted_text = mock_post.call_args.kwargs["text"]
     assert confirmed_msg in posted_text
-    assert "Fallback model used: `openai/gpt-5.6-sol`" in posted_text
+    assert "Fallback model used: `openai/gpt-6.2-astra`" in posted_text
 
 
 @pytest.mark.anyio

@@ -94,7 +94,7 @@ class McpServerConfig(BaseModel):
 
 
 class SystemSettingsModel(BaseModel):
-    default_fast_model: str = "gemini/gemini-3.8-flash"
+    default_fast_model: str = "gemini/gemini-4-hydrogen"
     default_reasoning_model: str = "mistral/mistral-large-latest"
     internal_revisor_enabled: bool = True
     shared_evidence_max_chars: int = 40_000
@@ -223,7 +223,7 @@ class SystemSettingsManager:
             backup_file=self.default_backup_file,
         )
 
-        self.default_fast_model: str = "gemini/gemini-3.8-flash"
+        self.default_fast_model: str = "gemini/gemini-4-hydrogen"
         self.default_reasoning_model: str = "mistral/mistral-large-latest"
         self.internal_revisor_enabled: bool = True
         self.shared_evidence_max_chars: int = 40_000
@@ -412,7 +412,7 @@ class SystemSettingsManager:
 
     def _apply_model_to_fields(self, model: SystemSettingsModel) -> None:
         self.default_fast_model = (
-            str(model.default_fast_model).strip() or "gemini/gemini-3.8-flash"
+            str(model.default_fast_model).strip() or "gemini/gemini-4-hydrogen"
         )
         self.default_reasoning_model = (
             str(model.default_reasoning_model).strip() or "mistral/mistral-large-latest"

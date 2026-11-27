@@ -32,9 +32,9 @@ def test_load_baseline_pricing_from_json():
     """Verify load_baseline_pricing loads data/pricing/baseline_prices.json correctly."""
     catalog = load_baseline_pricing()
     assert isinstance(catalog, dict)
-    assert "gemini/gemini-3.8-flash" in catalog
-    assert "openai/gpt-5.6-sol" in catalog
-    assert "anthropic/claude-opus-5" in catalog
+    assert "gemini/gemini-4-hydrogen" in catalog
+    assert "openai/gpt-6.2-astra" in catalog
+    assert "anthropic/claude-opus-5-5" in catalog
     assert "mistral/mistral-large-latest" in catalog
 
     for cfg in catalog.values():
@@ -53,14 +53,14 @@ def test_load_baseline_pricing_missing_file(tmp_path):
 
 
 def test_get_baseline_for_model():
-    gemini_base = get_baseline_for_model("gemini/gemini-3.8-flash")
-    assert gemini_base["input_price_per_1m"] == 0.75
-    assert gemini_base["output_price_per_1m"] == 3.75
+    gemini_base = get_baseline_for_model("gemini/gemini-4-hydrogen")
+    assert gemini_base["input_price_per_1m"] == 1.50
+    assert gemini_base["output_price_per_1m"] == 7.50
     assert "https://ai.google.dev/pricing" in gemini_base["source_url"]
 
     mistral_base = get_baseline_for_model("mistral/mistral-large-latest")
-    assert mistral_base["input_price_per_1m"] == 2.00
-    assert mistral_base["output_price_per_1m"] == 6.00
+    assert mistral_base["input_price_per_1m"] == 0.70
+    assert mistral_base["output_price_per_1m"] == 2.10
     assert "https://mistral.ai" in mistral_base["source_url"]
 
     # TKT-907: Unknown models fail-expensive with 15.00 / 75.00
@@ -120,7 +120,7 @@ async def test_fetch_pricing_with_agent_success():
         id="call_web_search_1",
         function=SimpleNamespace(
             name="web_search",
-            arguments=json.dumps({"query": "gemini-3.8-flash API pricing per 1M tokens", "max_results": 3}),
+            arguments=json.dumps({"query": "gemini-4-hydrogen API pricing per 1M tokens", "max_results": 3}),
         ),
     )
     first_response = SimpleNamespace(
@@ -138,9 +138,9 @@ async def test_fetch_pricing_with_agent_success():
     # 2. Second LiteLLM response returns structured JSON with accurate model pricing
     agent_json_output = json.dumps(
         {
-            "model_name": "gemini/gemini-3.8-flash",
-            "input_price_per_1m": 0.75,
-            "output_price_per_1m": 3.75,
+            "model_name": "gemini/gemini-4-hydrogen",
+            "input_price_per_1m": 1.50,
+            "output_price_per_1m": 7.50,
             "currency": "USD",
             "source": "Google AI Pricing Docs",
             "source_url": "https://ai.google.dev/pricing",
@@ -162,8 +162,8 @@ async def test_fetch_pricing_with_agent_success():
         {
             "results": [
                 {
-                    "title": "Gemini 3.8 Flash Pricing",
-                    "snippet": "Gemini 3.8 Flash: $0.75/1M input, $3.75/1M output.",
+                    "title": "Gemini 4 Hydrogen Pricing",
+                    "snippet": "Gemini 4 Hydrogen: $1.50/1M input, $7.50/1M output.",
                     "url": "https://ai.google.dev/pricing",
                 }
             ]
@@ -173,10 +173,10 @@ async def test_fetch_pricing_with_agent_success():
     with patch("litellm.acompletion", new_callable=AsyncMock, side_effect=[first_response, second_response]) as mock_completion, \
          patch("services.pricing_service.web_search", new_callable=AsyncMock, return_value=mock_search_json) as mock_search:
 
-        res = await pricing_service.fetch_pricing_with_agent("gemini/gemini-3.8-flash")
+        res = await pricing_service.fetch_pricing_with_agent("gemini/gemini-4-hydrogen")
 
-        assert res["input_price_per_1m"] == 0.75
-        assert res["output_price_per_1m"] == 3.75
+        assert res["input_price_per_1m"] == 1.50
+        assert res["output_price_per_1m"] == 7.50
         assert res["currency"] == "USD"
         assert res["source"] == "Google AI Pricing Docs"
         assert res["source_url"] == "https://ai.google.dev/pricing"
@@ -190,7 +190,7 @@ async def test_fetch_pricing_with_agent_success():
 
         # Verify web_search was called with query requested by agent
         mock_search.assert_called_once_with(
-            query="gemini-3.8-flash API pricing per 1M tokens",
+            query="gemini-4-hydrogen API pricing per 1M tokens",
             max_results=3,
         )
 
@@ -201,11 +201,11 @@ async def test_fetch_pricing_from_web_agent_fallback():
     # If agent raises an exception, fetch_pricing_from_web falls back to direct search
     mock_search_json = json.dumps(
         {
-            "query": "gemini-3.8-flash API pricing cost per 1M input output tokens",
+            "query": "gemini-4-hydrogen API pricing cost per 1M input output tokens",
             "results": [
                 {
                     "title": "Gemini Developer Pricing",
-                    "snippet": "Gemini 3.8 Flash is priced at $0.75 per 1M input tokens and $3.75 per 1M output tokens.",
+                    "snippet": "Gemini 4 Hydrogen is priced at $1.50 per 1M input tokens and $7.50 per 1M output tokens.",
                     "url": "https://ai.google.dev/pricing",
                 }
             ],
@@ -213,12 +213,12 @@ async def test_fetch_pricing_from_web_agent_fallback():
     )
 
     res = await pricing_service.fetch_pricing_from_web(
-        "gemini/gemini-3.8-flash",
+        "gemini/gemini-4-hydrogen",
         agent_fetcher=AsyncMock(side_effect=Exception("LiteLLM connection error")),
         search_fn=AsyncMock(return_value=mock_search_json),
     )
-    assert res["input_price_per_1m"] == 0.75
-    assert res["output_price_per_1m"] == 3.75
+    assert res["input_price_per_1m"] == 1.50
+    assert res["output_price_per_1m"] == 7.50
     assert "Web Search" in res["source"]
     assert res["source_url"] == "https://ai.google.dev/pricing"
     assert "updated_at" in res
@@ -226,14 +226,14 @@ async def test_fetch_pricing_from_web_agent_fallback():
 
 @pytest.mark.anyio
 async def test_7_day_cache_ttl():
-    model = "gemini/gemini-3.8-flash"
+    model = "gemini/gemini-4-hydrogen"
     now = time.time()
 
     # Pre-populate cache with an entry from 2 days ago (< 7 days)
     cached_data = {
         model: {
-            "input_price_per_1m": 0.75,
-            "output_price_per_1m": 3.75,
+            "input_price_per_1m": 1.50,
+            "output_price_per_1m": 7.50,
             "currency": "USD",
             "source": "Initial Test Cache",
             "updated_at": now - (2 * 24 * 3600),
@@ -249,8 +249,8 @@ async def test_7_day_cache_ttl():
     # If cache is 8 days old (> 7 days), it must trigger fresh web fetch
     stale_data = {
         model: {
-            "input_price_per_1m": 0.50,
-            "output_price_per_1m": 2.50,
+            "input_price_per_1m": 1.00,
+            "output_price_per_1m": 5.00,
             "currency": "USD",
             "source": "Stale 8-Day Cache",
             "updated_at": now - (8 * 24 * 3600),
@@ -259,8 +259,8 @@ async def test_7_day_cache_ttl():
     pricing_service.save_cache(stale_data)
 
     mock_fresh = {
-        "input_price_per_1m": 0.75,
-        "output_price_per_1m": 3.75,
+        "input_price_per_1m": 1.50,
+        "output_price_per_1m": 7.50,
         "currency": "USD",
         "source": "Refreshed Web Search",
         "updated_at": now,
@@ -280,7 +280,7 @@ async def test_refresh_pricing_when_weekly_update_disabled_and_price_already_set
     from config_store.app_settings import app_settings_manager
 
     app_settings_manager.set_weekly_pricing_update_enabled(False, save=False)
-    model = "openai/gpt-5.6-terra"
+    model = "openai/gpt-6.1-terra"
     now = time.time()
 
     cached_data = {
@@ -365,7 +365,7 @@ async def test_refresh_pricing_force_overrides_disabled_weekly_update():
     from config_store.app_settings import app_settings_manager
 
     app_settings_manager.set_weekly_pricing_update_enabled(False, save=False)
-    model = "anthropic/claude-opus-5"
+    model = "anthropic/claude-opus-5-5"
     now = time.time()
 
     cached_data = {
@@ -443,14 +443,14 @@ def test_get_baseline_for_model_lowercase_together_and_longest_prefix():
     """TKT-1219: mixed-case Together AI keys resolve accurately and exact registry beats shorter baseline prefix."""
     from services.pricing_service import get_baseline_for_model
 
-    res = get_baseline_for_model("together_ai/deepseek-ai/DeepSeek-V4-Pro")
-    assert res["input_price_per_1m"] == 0.55
-    assert res["output_price_per_1m"] == 2.19
+    res = get_baseline_for_model("together_ai/deepseek-ai/DeepSeek-V4-Pro-0813")
+    assert res["input_price_per_1m"] == 1.32
+    assert res["output_price_per_1m"] == 3.96
 
     res_mini = get_baseline_for_model(
-        "openai/gpt-5.6-mini",
+        "openai/gpt-6-mini",
         model_cost_registry={
-            "openai/gpt-5.6-mini": {
+            "openai/gpt-6-mini": {
                 "input_cost_per_token": 0.0000001,
                 "output_cost_per_token": 0.0000004,
             }

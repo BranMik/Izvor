@@ -41,7 +41,7 @@ _BARE_MODEL_PREFIX_ENV_KEYS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...]
     (("gpt-", "o1-", "o3-", "o4-"), ("OPENAI_API_KEY",)),
     (("claude-",), ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")),
     (("gemini-",), ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
-    (("mistral-", "codestral", "devstral", "ministral"), ("MISTRAL_API_KEY",)),
+    (("mistral-", "codestral", "ministral"), ("MISTRAL_API_KEY",)),
     (("command-",), ("COHERE_API_KEY", "CO_API_KEY")),
 )
 

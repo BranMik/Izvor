@@ -7,12 +7,20 @@ the '[STARTUP] Application Startup Complete' log is emitted.
 from __future__ import annotations
 
 import logging
+from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
 from main import app, lifespan
 
 pytestmark = pytest.mark.presidio
+
+
+@pytest.fixture(autouse=True)
+def mock_pricing_refresh_during_startup():
+    """Prevent lifespan pricing cache warm-up from making live LLM/web calls when cache lacks new models."""
+    with patch("services.pricing_service.pricing_service.refresh_pricing", new_callable=AsyncMock, return_value={}):
+        yield
 
 
 @pytest.mark.anyio

@@ -545,7 +545,7 @@ async def test_process_and_respond_missing_key_falls_back_with_slack_footer():
 
     thread_state_manager.reset_all()
     original_configured = settings_manager.agents_config["agent-10002"]["model"]
-    assert original_configured == "anthropic/claude-opus-5"
+    assert original_configured == "anthropic/claude-opus-5-5"
 
     configure_env_provider(lambda: {"MISTRAL_API_KEY": "valid-mistral-key", "GEMINI_API_KEY": "AIzaSyValid"})
 
@@ -581,7 +581,7 @@ async def test_process_and_respond_missing_key_falls_back_with_slack_footer():
     assert len(posted) == 1
     assert (
         "⚠️ _Fallback model used: `mistral/mistral-large-latest` "
-        "(missing API key for `anthropic/claude-opus-5`)_"
+        "(missing API key for `anthropic/claude-opus-5-5`)_"
     ) in posted[0]["text"]
     assert "{mistral/mistral-large-latest : 100/40}" in posted[0]["text"]
     # Shared agent_settings must NOT be mutated in place

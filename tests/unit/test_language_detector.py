@@ -216,8 +216,8 @@ async def test_detect_language_llm_falls_back_when_key_missing():
         "nlp.language_detector.litellm.acompletion",
         AsyncMock(return_value=_make_mock_response("Croatian")),
     ) as mock_comp:
-        res = await detect_language_llm("kratki test", model="gemini/gemini-3.8-flash")
+        res = await detect_language_llm("kratki test", model="gemini/gemini-4-hydrogen")
 
     assert res == "Croatian"
-    assert mock_comp.call_args.kwargs["model"] == "openai/gpt-5.6-sol"
+    assert mock_comp.call_args.kwargs["model"] == "openai/gpt-6.2-astra"
 

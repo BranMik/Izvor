@@ -35,9 +35,9 @@ def test_system_settings_defaults():
 
         assert mgr.max_file_size_mb == 50.0
         assert mgr.get_max_file_size_bytes() == 50 * 1024 * 1024
-        assert mgr.default_fast_model == "gemini/gemini-3.8-flash"
+        assert mgr.default_fast_model == "gemini/gemini-4-hydrogen"
         assert mgr.default_reasoning_model == "mistral/mistral-large-latest"
-        assert mgr.get_default_fast_model() == "gemini/gemini-3.8-flash"
+        assert mgr.get_default_fast_model() == "gemini/gemini-4-hydrogen"
         assert mgr.get_default_reasoning_model() == "mistral/mistral-large-latest"
 
         rag = mgr.get_rag_config()
@@ -166,7 +166,7 @@ def test_system_settings_module_convenience(tmp_path):
     set_workspace_write_blacklist_additional(["secrets/*", "custom.key"])
     assert get_workspace_write_blacklist_additional() == ["secrets/*", "custom.key"]
 
-    assert get_default_fast_model() == "gemini/gemini-3.8-flash"
+    assert get_default_fast_model() == "gemini/gemini-4-hydrogen"
     set_default_fast_model("test/fast-model")
     assert get_default_fast_model() == "test/fast-model"
 

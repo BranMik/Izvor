@@ -464,9 +464,9 @@ def test_pricing_service_class():
         cache_file = Path(tmp_dir) / "test_pricing_cache.json"
         ps = PricingService(cache_file=cache_file)
 
-        pricing = ps.get_pricing("gemini/gemini-3.8-flash")
-        assert pricing["input_price_per_1m"] == 0.75
-        assert pricing["output_price_per_1m"] == 3.75
+        pricing = ps.get_pricing("gemini/gemini-4-hydrogen")
+        assert pricing["input_price_per_1m"] == 1.50
+        assert pricing["output_price_per_1m"] == 7.50
 
         # Save cache
         ps.save_cache({"test-model": {"input_price_per_1m": 5.0, "output_price_per_1m": 15.0}})

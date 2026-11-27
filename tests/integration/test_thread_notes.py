@@ -722,8 +722,8 @@ async def test_generate_thread_notes_falls_back_when_scribe_key_missing():
         content, token_stats = await generate_thread_notes(history, is_completed=False)
 
     assert "Fallback scribe synthesis" in content
-    assert mock_litellm.call_args.kwargs["model"] == "gemini/gemini-3.8-flash"
-    assert token_stats["model"] == "gemini/gemini-3.8-flash"
+    assert mock_litellm.call_args.kwargs["model"] == "gemini/gemini-4-carbon"
+    assert token_stats["model"] == "gemini/gemini-4-carbon"
 
 
 @pytest.mark.anyio

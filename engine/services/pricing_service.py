@@ -90,7 +90,7 @@ PRICING_TOOL_SCHEMAS = [
 
 
 def _normalize_model_name(model_name: str) -> str:
-    """Normalizes model string (e.g. 'gemini/gemini-3.8-flash')."""
+    """Normalizes model string (e.g. 'gemini/gemini-4-hydrogen')."""
     if not isinstance(model_name, str):
         model_name = str(model_name) if model_name is not None else ""
     return model_name.strip().lower()

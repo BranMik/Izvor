@@ -48,7 +48,7 @@ def test_get_available_models_structure():
         "OPENAI_API_KEY": "sk-proj-valid-key",
     }
     option_groups, initial_opt = get_available_models(
-        current_model="gemini/gemini-3.8-flash",
+        current_model="gemini/gemini-4-hydrogen",
         env_dict=mock_env,
     )
     assert len(option_groups) == 3
@@ -59,20 +59,21 @@ def test_get_available_models_structure():
 
     # Check initial option matches
     assert initial_opt is not None
-    assert initial_opt["value"] == "gemini/gemini-3.8-flash"
-    assert initial_opt["text"]["text"] == "gemini/gemini-3.8-flash"
+    assert initial_opt["value"] == "gemini/gemini-4-hydrogen"
+    assert initial_opt["text"]["text"] == "gemini/gemini-4-hydrogen"
 
     # Verify initial_opt is physically inside the Google Gemini group options
     gemini_grp = next(g for g in option_groups if g["label"]["text"] == "Google Gemini")
     opt_values = [o["value"] for o in gemini_grp["options"]]
-    assert "gemini/gemini-3.8-flash" in opt_values
+    assert "gemini/gemini-4-hydrogen" in opt_values
 
-    # Verify OpenAI models include Sol, Terra, and Luna
+    # Verify OpenAI models include Astra, Sol, Terra, and Luna
     openai_grp = next(g for g in option_groups if g["label"]["text"] == "OpenAI")
     openai_opt_values = [o["value"] for o in openai_grp["options"]]
-    assert "openai/gpt-5.6-sol" in openai_opt_values
-    assert "openai/gpt-5.6-terra" in openai_opt_values
-    assert "openai/gpt-5.6-luna" in openai_opt_values
+    assert "openai/gpt-6.2-astra" in openai_opt_values
+    assert "openai/gpt-6.2-sol" in openai_opt_values
+    assert "openai/gpt-6.1-terra" in openai_opt_values
+    assert "openai/gpt-6-luna" in openai_opt_values
 
 
 def test_get_available_models_fallback_when_key_missing():
@@ -80,9 +81,9 @@ def test_get_available_models_fallback_when_key_missing():
     mock_env = {
         "GEMINI_API_KEY": "AIzaSyFakeKeyValidFormat",
     }
-    # Current model is OpenAI Sol, but OPENAI_API_KEY is not in mock_env
+    # Current model is OpenAI Astra, but OPENAI_API_KEY is not in mock_env
     option_groups, initial_opt = get_available_models(
-        current_model="openai/gpt-5.6-sol",
+        current_model="openai/gpt-6.2-astra",
         env_dict=mock_env,
     )
     group_labels = [g["label"]["text"] for g in option_groups]
@@ -90,9 +91,9 @@ def test_get_available_models_fallback_when_key_missing():
     assert "Current Model" in group_labels
 
     assert initial_opt is not None
-    assert initial_opt["value"] == "openai/gpt-5.6-sol"
+    assert initial_opt["value"] == "openai/gpt-6.2-astra"
     fallback_grp = next(g for g in option_groups if g["label"]["text"] == "Current Model")
-    assert fallback_grp["options"][0]["value"] == "openai/gpt-5.6-sol"
+    assert fallback_grp["options"][0]["value"] == "openai/gpt-6.2-astra"
 
 
 def test_get_available_models_no_keys_placeholder():
@@ -112,16 +113,16 @@ def test_agent_settings_set_agent_model(tmp_path):
     mgr = AgentSettingsManager(settings_file=test_settings_file)
 
     # Invalid agent key returns False
-    assert mgr.set_agent_model("NonExistentAgent", "openai/gpt-5.6-sol") is False
+    assert mgr.set_agent_model("NonExistentAgent", "openai/gpt-6.2-astra") is False
 
     # Valid agent key updates model
-    assert mgr.set_agent_model("agent-10001", "openai/gpt-5.6-luna") is True
-    assert mgr.agents_config["agent-10001"]["model"] == "openai/gpt-5.6-luna"
+    assert mgr.set_agent_model("agent-10001", "openai/gpt-6-luna") is True
+    assert mgr.agents_config["agent-10001"]["model"] == "openai/gpt-6-luna"
 
     # Reload from JSON file and verify persistence
     mgr2 = AgentSettingsManager(settings_file=test_settings_file)
     mgr2.load()
-    assert mgr2.agents_config["agent-10001"]["model"] == "openai/gpt-5.6-luna"
+    assert mgr2.agents_config["agent-10001"]["model"] == "openai/gpt-6-luna"
 
 
 def test_build_app_home_view_renders_model_dropdowns():
@@ -169,8 +170,8 @@ async def test_slack_interactivity_model_change():
                 "block_id": "agent_model_block_agent-10001",
                 "type": "static_select",
                 "selected_option": {
-                    "text": {"type": "plain_text", "text": "openai/gpt-5.6-sol"},
-                    "value": "openai/gpt-5.6-sol",
+                    "text": {"type": "plain_text", "text": "openai/gpt-6.2-astra"},
+                    "value": "openai/gpt-6.2-astra",
                 },
             }
         ],
@@ -185,7 +186,7 @@ async def test_slack_interactivity_model_change():
             assert resp.status_code == 200
             assert mock_publish.called
             assert mock_publish.call_args.kwargs["user_id"] == "U123TEST"
-            assert AGENTS_CONFIG["agent-10001"]["model"] == "openai/gpt-5.6-sol"
+            assert AGENTS_CONFIG["agent-10001"]["model"] == "openai/gpt-6.2-astra"
     finally:
         if orig_model:
             set_agent_model("agent-10001", orig_model)
@@ -193,18 +194,30 @@ async def test_slack_interactivity_model_change():
 
 def test_load_provider_catalog_from_json():
     """Verify load_provider_catalog reads data/pricing/model_provider_catalog.json correctly."""
+    from services.pricing_service import load_baseline_pricing
+
     catalog = load_provider_catalog()
     assert isinstance(catalog, dict)
     assert "Google Gemini" in catalog
     assert "OpenAI" in catalog
     assert "Anthropic" in catalog
 
+    all_models: list[str] = []
     for cfg in catalog.values():
         assert "env_keys" in cfg
         assert isinstance(cfg["env_keys"], list)
         assert "models" in cfg
         assert isinstance(cfg["models"], list)
         assert len(cfg["models"]) > 0
+        all_models.extend(cfg["models"])
+
+    # Slack Block Kit static_select rejects payloads exceeding 100 total options
+    assert len(all_models) < 100
+
+    # Every catalog model must have a matching baseline price entry (1:1 parity)
+    baseline = load_baseline_pricing()
+    catalog_lower = {m.strip().lower() for m in all_models}
+    assert catalog_lower == set(baseline.keys())
 
 
 def test_load_provider_catalog_missing_file(tmp_path):
@@ -241,20 +254,20 @@ def test_required_env_keys_and_has_api_key_for_model():
     """Verify catalog, prefix, bare model, and unknown/local provider key mappings."""
     from core.model_catalog import get_required_env_keys_for_model, has_api_key_for_model
 
-    assert get_required_env_keys_for_model("anthropic/claude-opus-5") == [
+    assert get_required_env_keys_for_model("anthropic/claude-opus-5-5") == [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
     ]
-    assert get_required_env_keys_for_model("openai/gpt-5.9-unlisted") == ["OPENAI_API_KEY"]
-    assert get_required_env_keys_for_model("claude-3-7-sonnet") == [
+    assert get_required_env_keys_for_model("openai/gpt-6.9-unlisted") == ["OPENAI_API_KEY"]
+    assert get_required_env_keys_for_model("claude-sonnet-5-5") == [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
     ]
     assert get_required_env_keys_for_model("ollama/llama3.3") is None
 
     env = {"GEMINI_API_KEY": "AIzaSyValidKey123", "OPENAI_API_KEY": "your-openai-api-key"}
-    assert has_api_key_for_model("gemini/gemini-3.8-flash", env_dict=env) is True
-    assert has_api_key_for_model("openai/gpt-5.6-sol", env_dict=env) is False
+    assert has_api_key_for_model("gemini/gemini-4-hydrogen", env_dict=env) is True
+    assert has_api_key_for_model("openai/gpt-6.2-astra", env_dict=env) is False
     assert has_api_key_for_model("ollama/llama3.3", env_dict=env) is True
 
 
@@ -264,42 +277,42 @@ def test_resolve_model_with_fallback_priority():
 
     # 1. Configured key present -> keeps configured model
     res_ok = resolve_model_with_fallback(
-        "anthropic/claude-opus-5",
+        "anthropic/claude-opus-5-5",
         preferred_fallback_model="mistral/mistral-large-latest",
         env_dict={"ANTHROPIC_API_KEY": "sk-ant-valid", "MISTRAL_API_KEY": "mistral-valid"},
     )
-    assert res_ok.model == "anthropic/claude-opus-5"
+    assert res_ok.model == "anthropic/claude-opus-5-5"
     assert res_ok.fallback_used is False
 
     # 2. Configured key missing -> prefers default_reasoning_model when its key is present
     res_pref = resolve_model_with_fallback(
-        "anthropic/claude-opus-5",
+        "anthropic/claude-opus-5-5",
         preferred_fallback_model="mistral/mistral-large-latest",
         env_dict={"GEMINI_API_KEY": "AIzaSyValid", "MISTRAL_API_KEY": "mistral-valid"},
     )
     assert res_pref.model == "mistral/mistral-large-latest"
-    assert res_pref.configured_model == "anthropic/claude-opus-5"
+    assert res_pref.configured_model == "anthropic/claude-opus-5-5"
     assert res_pref.fallback_used is True
     assert res_pref.reason == "default_reasoning_model"
 
     # 3. Configured key AND default_reasoning_model key missing -> picks first available catalog model
     res_cat = resolve_model_with_fallback(
-        "anthropic/claude-opus-5",
+        "anthropic/claude-opus-5-5",
         preferred_fallback_model="mistral/mistral-large-latest",
         env_dict={"OPENAI_API_KEY": "sk-valid-openai", "GROQ_API_KEY": "gsk-valid"},
     )
-    assert res_cat.model == "openai/gpt-5.6-sol"
-    assert res_cat.configured_model == "anthropic/claude-opus-5"
+    assert res_cat.model == "openai/gpt-6.2-astra"
+    assert res_cat.configured_model == "anthropic/claude-opus-5-5"
     assert res_cat.fallback_used is True
     assert res_cat.reason == "first_available:OpenAI"
 
     # 4. No keys anywhere -> preserves configured model so downstream fails fast as api_key_not_found
     res_none = resolve_model_with_fallback(
-        "anthropic/claude-opus-5",
+        "anthropic/claude-opus-5-5",
         preferred_fallback_model="mistral/mistral-large-latest",
         env_dict={},
     )
-    assert res_none.model == "anthropic/claude-opus-5"
+    assert res_none.model == "anthropic/claude-opus-5-5"
     assert res_none.fallback_used is False
     assert res_none.reason == "no_available_fallback"
 

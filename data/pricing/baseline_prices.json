@@ -1,90 +1,111 @@
 {
-  "gemini/gemini-3.8-flash": {
-    "input_price_per_1m": 0.75,
-    "output_price_per_1m": 3.75,
+  "gemini/gemini-4-carbon": {
+    "input_price_per_1m": 2.00,
+    "output_price_per_1m": 10.00,
     "currency": "USD",
     "source": "Google AI Documentation",
     "source_url": "https://ai.google.dev/pricing"
   },
-  "gemini/gemini-3.8-flash-cyber": {
-    "input_price_per_1m": 0.75,
-    "output_price_per_1m": 3.75,
+  "gemini/gemini-4-neon": {
+    "input_price_per_1m": 3.00,
+    "output_price_per_1m": 15.00,
     "currency": "USD",
     "source": "Google AI Documentation",
     "source_url": "https://ai.google.dev/pricing"
   },
-  "gemini/gemini-3.5-flash": {
-    "input_price_per_1m": 0.15,
-    "output_price_per_1m": 0.60,
+  "gemini/gemini-4-hydrogen": {
+    "input_price_per_1m": 1.50,
+    "output_price_per_1m": 7.50,
     "currency": "USD",
     "source": "Google AI Documentation",
     "source_url": "https://ai.google.dev/pricing"
   },
-  "openai/gpt-5.6-sol": {
-    "input_price_per_1m": 5.00,
-    "output_price_per_1m": 20.00,
+  "gemini/gemini-4-argon": {
+    "input_price_per_1m": 2.00,
+    "output_price_per_1m": 10.00,
+    "currency": "USD",
+    "source": "Google AI Documentation",
+    "source_url": "https://ai.google.dev/pricing"
+  },
+  "gemini/gemini-3.5-flash-lite": {
+    "input_price_per_1m": 0.30,
+    "output_price_per_1m": 2.50,
+    "currency": "USD",
+    "source": "Google AI Documentation",
+    "source_url": "https://ai.google.dev/pricing"
+  },
+  "openai/gpt-6.2-astra": {
+    "input_price_per_1m": 8.00,
+    "output_price_per_1m": 40.00,
     "currency": "USD",
     "source": "OpenAI Pricing",
     "source_url": "https://openai.com/pricing"
   },
-  "openai/gpt-5.6-terra": {
-    "input_price_per_1m": 2.50,
+  "openai/gpt-6.2-sol": {
+    "input_price_per_1m": 2.00,
     "output_price_per_1m": 10.00,
     "currency": "USD",
     "source": "OpenAI Pricing",
     "source_url": "https://openai.com/pricing"
   },
-  "openai/gpt-5.6-luna": {
-    "input_price_per_1m": 0.50,
-    "output_price_per_1m": 2.00,
+  "openai/gpt-6.1-terra": {
+    "input_price_per_1m": 1.00,
+    "output_price_per_1m": 5.00,
     "currency": "USD",
     "source": "OpenAI Pricing",
     "source_url": "https://openai.com/pricing"
   },
-  "openai/gpt-5.6": {
-    "input_price_per_1m": 5.00,
+  "openai/gpt-6-luna": {
+    "input_price_per_1m": 0.10,
+    "output_price_per_1m": 0.50,
+    "currency": "USD",
+    "source": "OpenAI Pricing",
+    "source_url": "https://openai.com/pricing"
+  },
+  "anthropic/claude-fable-5-2": {
+    "input_price_per_1m": 8.00,
+    "output_price_per_1m": 40.00,
+    "currency": "USD",
+    "source": "Anthropic Pricing",
+    "source_url": "https://www.anthropic.com/pricing"
+  },
+  "anthropic/claude-opus-5-5": {
+    "input_price_per_1m": 4.00,
     "output_price_per_1m": 20.00,
     "currency": "USD",
-    "source": "OpenAI Pricing",
-    "source_url": "https://openai.com/pricing"
+    "source": "Anthropic Pricing",
+    "source_url": "https://www.anthropic.com/pricing"
   },
-  "anthropic/claude-fable-5-1": {
-    "input_price_per_1m": 15.00,
-    "output_price_per_1m": 75.00,
+  "anthropic/claude-sonnet-5-5": {
+    "input_price_per_1m": 2.00,
+    "output_price_per_1m": 10.00,
     "currency": "USD",
     "source": "Anthropic Pricing",
     "source_url": "https://www.anthropic.com/pricing"
   },
-  "anthropic/claude-opus-5": {
-    "input_price_per_1m": 15.00,
-    "output_price_per_1m": 75.00,
-    "currency": "USD",
-    "source": "Anthropic Pricing",
-    "source_url": "https://www.anthropic.com/pricing"
-  },
-  "anthropic/claude-sonnet-5": {
-    "input_price_per_1m": 3.00,
-    "output_price_per_1m": 15.00,
-    "currency": "USD",
-    "source": "Anthropic Pricing",
-    "source_url": "https://www.anthropic.com/pricing"
-  },
-  "anthropic/claude-haiku-4-5": {
-    "input_price_per_1m": 0.80,
-    "output_price_per_1m": 4.00,
+  "anthropic/claude-haiku-5-5": {
+    "input_price_per_1m": 0.10,
+    "output_price_per_1m": 0.50,
     "currency": "USD",
     "source": "Anthropic Pricing",
     "source_url": "https://www.anthropic.com/pricing"
   },
   "mistral/mistral-large-latest": {
-    "input_price_per_1m": 2.00,
-    "output_price_per_1m": 6.00,
+    "input_price_per_1m": 0.70,
+    "output_price_per_1m": 2.10,
+    "currency": "USD",
+    "source": "Mistral AI Pricing",
+    "source_url": "https://mistral.ai/technology/#pricing"
+  },
+  "mistral/mistral-medium-latest": {
+    "input_price_per_1m": 1.50,
+    "output_price_per_1m": 7.50,
     "currency": "USD",
     "source": "Mistral AI Pricing",
     "source_url": "https://mistral.ai/technology/#pricing"
   },
   "mistral/mistral-small-latest": {
-    "input_price_per_1m": 0.20,
+    "input_price_per_1m": 0.15,
     "output_price_per_1m": 0.60,
     "currency": "USD",
     "source": "Mistral AI Pricing",
@@ -97,128 +118,114 @@
     "source": "Mistral AI Pricing",
     "source_url": "https://mistral.ai/technology/#pricing"
   },
-  "mistral/devstral-2": {
-    "input_price_per_1m": 0.40,
-    "output_price_per_1m": 1.20,
+  "mistral/ministral-14b-latest": {
+    "input_price_per_1m": 0.20,
+    "output_price_per_1m": 0.20,
     "currency": "USD",
     "source": "Mistral AI Pricing",
     "source_url": "https://mistral.ai/technology/#pricing"
   },
   "mistral/ministral-8b-latest": {
-    "input_price_per_1m": 0.10,
-    "output_price_per_1m": 0.10,
+    "input_price_per_1m": 0.15,
+    "output_price_per_1m": 0.15,
     "currency": "USD",
     "source": "Mistral AI Pricing",
     "source_url": "https://mistral.ai/technology/#pricing"
   },
-  "meta/muse-spark": {
-    "input_price_per_1m": 0.20,
-    "output_price_per_1m": 0.60,
+  "meta/muse-wonder-1.0": {
+    "input_price_per_1m": 4.00,
+    "output_price_per_1m": 20.00,
     "currency": "USD",
-    "source": "Meta AI Benchmarks",
+    "source": "Meta AI Pricing",
     "source_url": "https://ai.meta.com/"
   },
-  "meta/muse-glimmer": {
-    "input_price_per_1m": 0.15,
+  "meta/muse-spark-1.3": {
+    "input_price_per_1m": 1.25,
+    "output_price_per_1m": 4.25,
+    "currency": "USD",
+    "source": "Meta AI Pricing",
+    "source_url": "https://ai.meta.com/"
+  },
+  "meta/muse-ember-1.0": {
+    "input_price_per_1m": 0.10,
     "output_price_per_1m": 0.50,
     "currency": "USD",
-    "source": "Meta AI Benchmarks",
+    "source": "Meta AI Pricing",
     "source_url": "https://ai.meta.com/"
   },
-  "meta/llama-4-scout": {
-    "input_price_per_1m": 0.50,
-    "output_price_per_1m": 1.50,
-    "currency": "USD",
-    "source": "Meta AI Benchmarks",
-    "source_url": "https://ai.meta.com/"
-  },
-  "meta/llama-4-maverick": {
-    "input_price_per_1m": 1.00,
-    "output_price_per_1m": 3.00,
-    "currency": "USD",
-    "source": "Meta AI Benchmarks",
-    "source_url": "https://ai.meta.com/"
-  },
-  "meta/llama-3.3-70b": {
-    "input_price_per_1m": 0.59,
-    "output_price_per_1m": 0.79,
-    "currency": "USD",
-    "source": "Meta AI Benchmarks",
-    "source_url": "https://ai.meta.com/"
-  },
-  "groq/llama-4-scout": {
-    "input_price_per_1m": 0.50,
-    "output_price_per_1m": 1.50,
+  "groq/openai/gpt-oss-120b": {
+    "input_price_per_1m": 0.15,
+    "output_price_per_1m": 0.60,
     "currency": "USD",
     "source": "Groq Pricing",
     "source_url": "https://groq.com/pricing"
   },
-  "groq/llama-4-maverick": {
-    "input_price_per_1m": 1.00,
-    "output_price_per_1m": 3.00,
+  "groq/openai/gpt-oss-20b": {
+    "input_price_per_1m": 0.075,
+    "output_price_per_1m": 0.30,
     "currency": "USD",
     "source": "Groq Pricing",
     "source_url": "https://groq.com/pricing"
   },
-  "groq/llama-3.3-70b-versatile": {
-    "input_price_per_1m": 0.59,
-    "output_price_per_1m": 0.79,
+  "groq/qwen/qwen3.8-27b": {
+    "input_price_per_1m": 0.80,
+    "output_price_per_1m": 4.00,
     "currency": "USD",
     "source": "Groq Pricing",
     "source_url": "https://groq.com/pricing"
   },
-  "groq/llama-3.1-8b-instant": {
-    "input_price_per_1m": 0.05,
-    "output_price_per_1m": 0.08,
-    "currency": "USD",
-    "source": "Groq Pricing",
-    "source_url": "https://groq.com/pricing"
-  },
-  "together_ai/deepseek-ai/deepseek-v4-pro": {
-    "input_price_per_1m": 0.55,
-    "output_price_per_1m": 2.19,
+  "together_ai/deepseek-ai/deepseek-v4-pro-0813": {
+    "input_price_per_1m": 1.32,
+    "output_price_per_1m": 3.96,
     "currency": "USD",
     "source": "Together AI Pricing",
     "source_url": "https://www.together.ai/pricing"
   },
-  "together_ai/deepseek-ai/deepseek-v4-flash": {
-    "input_price_per_1m": 0.14,
-    "output_price_per_1m": 0.28,
+  "together_ai/deepseek-ai/deepseek-v4.1-flash": {
+    "input_price_per_1m": 0.30,
+    "output_price_per_1m": 1.20,
     "currency": "USD",
     "source": "Together AI Pricing",
     "source_url": "https://www.together.ai/pricing"
   },
-  "together_ai/meta-llama/llama-4-scout": {
-    "input_price_per_1m": 0.50,
+  "together_ai/moonshotai/kimi-k3.1-pro": {
+    "input_price_per_1m": 2.00,
+    "output_price_per_1m": 10.00,
+    "currency": "USD",
+    "source": "Together AI Pricing",
+    "source_url": "https://www.together.ai/pricing"
+  },
+  "together_ai/zai-org/glm-5.3": {
+    "input_price_per_1m": 1.40,
+    "output_price_per_1m": 4.40,
+    "currency": "USD",
+    "source": "Together AI Pricing",
+    "source_url": "https://www.together.ai/pricing"
+  },
+  "together_ai/qwen/qwen3.8-2.4t-a95b": {
+    "input_price_per_1m": 2.00,
+    "output_price_per_1m": 6.00,
+    "currency": "USD",
+    "source": "Together AI Pricing",
+    "source_url": "https://www.together.ai/pricing"
+  },
+  "together_ai/meta-models/muse-glimmer-30b": {
+    "input_price_per_1m": 0.35,
     "output_price_per_1m": 1.50,
-    "currency": "USD",
-    "source": "Together AI Pricing",
-    "source_url": "https://www.together.ai/pricing"
-  },
-  "together_ai/meta-llama/llama-3.3-70b-instruct-turbo": {
-    "input_price_per_1m": 0.88,
-    "output_price_per_1m": 0.88,
     "currency": "USD",
     "source": "Together AI Pricing",
     "source_url": "https://www.together.ai/pricing"
   },
   "deepseek/deepseek-v4-pro": {
-    "input_price_per_1m": 0.55,
-    "output_price_per_1m": 2.19,
+    "input_price_per_1m": 1.32,
+    "output_price_per_1m": 3.96,
     "currency": "USD",
     "source": "DeepSeek Pricing",
     "source_url": "https://www.deepseek.com"
   },
-  "deepseek/deepseek-v4-flash": {
-    "input_price_per_1m": 0.14,
-    "output_price_per_1m": 0.28,
-    "currency": "USD",
-    "source": "DeepSeek Pricing",
-    "source_url": "https://www.deepseek.com"
-  },
-  "deepseek/deepseek-chat": {
-    "input_price_per_1m": 0.14,
-    "output_price_per_1m": 0.28,
+  "deepseek/deepseek-flash": {
+    "input_price_per_1m": 0.30,
+    "output_price_per_1m": 1.20,
     "currency": "USD",
     "source": "DeepSeek Pricing",
     "source_url": "https://www.deepseek.com"
@@ -230,51 +237,72 @@
     "source": "OpenRouter Pricing",
     "source_url": "https://openrouter.ai/models"
   },
-  "openrouter/openai/gpt-5.6-sol": {
-    "input_price_per_1m": 5.00,
+  "openrouter/openai/gpt-6.2-astra": {
+    "input_price_per_1m": 8.00,
+    "output_price_per_1m": 40.00,
+    "currency": "USD",
+    "source": "OpenRouter Pricing",
+    "source_url": "https://openrouter.ai/models"
+  },
+  "openrouter/openai/gpt-6.2-sol": {
+    "input_price_per_1m": 2.00,
+    "output_price_per_1m": 10.00,
+    "currency": "USD",
+    "source": "OpenRouter Pricing",
+    "source_url": "https://openrouter.ai/models"
+  },
+  "openrouter/anthropic/claude-fable-5.2": {
+    "input_price_per_1m": 8.00,
+    "output_price_per_1m": 40.00,
+    "currency": "USD",
+    "source": "OpenRouter Pricing",
+    "source_url": "https://openrouter.ai/models"
+  },
+  "openrouter/anthropic/claude-opus-5.5": {
+    "input_price_per_1m": 4.00,
     "output_price_per_1m": 20.00,
     "currency": "USD",
     "source": "OpenRouter Pricing",
     "source_url": "https://openrouter.ai/models"
   },
-  "openrouter/openai/gpt-5.6-terra": {
+  "openrouter/google/gemini-4-hydrogen": {
+    "input_price_per_1m": 1.50,
+    "output_price_per_1m": 7.50,
+    "currency": "USD",
+    "source": "OpenRouter Pricing",
+    "source_url": "https://openrouter.ai/models"
+  },
+  "command-a-plus-05-2026": {
+    "input_price_per_1m": 0.80,
+    "output_price_per_1m": 3.20,
+    "currency": "USD",
+    "source": "Cohere Pricing",
+    "source_url": "https://cohere.com/pricing"
+  },
+  "command-a-reasoning-08-2025": {
     "input_price_per_1m": 2.50,
     "output_price_per_1m": 10.00,
     "currency": "USD",
-    "source": "OpenRouter Pricing",
-    "source_url": "https://openrouter.ai/models"
+    "source": "Cohere Pricing",
+    "source_url": "https://cohere.com/pricing"
   },
-  "openrouter/anthropic/claude-opus-5": {
-    "input_price_per_1m": 15.00,
-    "output_price_per_1m": 75.00,
+  "command-a-03-2025": {
+    "input_price_per_1m": 2.50,
+    "output_price_per_1m": 10.00,
     "currency": "USD",
-    "source": "OpenRouter Pricing",
-    "source_url": "https://openrouter.ai/models"
+    "source": "Cohere Pricing",
+    "source_url": "https://cohere.com/pricing"
   },
-  "openrouter/anthropic/claude-sonnet-5": {
+  "perplexity/sonar-pro": {
     "input_price_per_1m": 3.00,
     "output_price_per_1m": 15.00,
     "currency": "USD",
-    "source": "OpenRouter Pricing",
-    "source_url": "https://openrouter.ai/models"
+    "source": "Perplexity Pricing",
+    "source_url": "https://docs.perplexity.ai/guides/pricing"
   },
-  "command-r-plus": {
-    "input_price_per_1m": 2.50,
-    "output_price_per_1m": 10.00,
-    "currency": "USD",
-    "source": "Cohere Pricing",
-    "source_url": "https://cohere.com/pricing"
-  },
-  "command-r": {
-    "input_price_per_1m": 0.15,
-    "output_price_per_1m": 0.60,
-    "currency": "USD",
-    "source": "Cohere Pricing",
-    "source_url": "https://cohere.com/pricing"
-  },
-  "perplexity/sonar-reasoning": {
-    "input_price_per_1m": 1.00,
-    "output_price_per_1m": 5.00,
+  "perplexity/sonar-reasoning-pro": {
+    "input_price_per_1m": 2.00,
+    "output_price_per_1m": 8.00,
     "currency": "USD",
     "source": "Perplexity Pricing",
     "source_url": "https://docs.perplexity.ai/guides/pricing"

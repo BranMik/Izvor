@@ -303,7 +303,7 @@ ORCHESTRATOR_CONFIG: dict[str, Any] = _load_orchestrator_from_ssot()
 def _load_default_models_from_ssot() -> tuple[str, str]:
     """Loads default_fast_model and default_reasoning_model from config/settings/system_settings.json SSOT."""
     settings_file = SYSTEM_SETTINGS_FILE
-    fast_default = "gemini/gemini-3.8-flash"
+    fast_default = "gemini/gemini-4-hydrogen"
     reasoning_default = "mistral/mistral-large-latest"
     if not settings_file.exists():
         return fast_default, reasoning_default
