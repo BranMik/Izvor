@@ -85,6 +85,8 @@ class JsonSettingsStore(Generic[T]):
         self._lock = threading.RLock()
         self._cached_model: T | None = None
         self._raw_data: dict[str, Any] = {}
+        self.loaded_from_source: str | None = None
+        self.last_error: str | None = None
 
     def load(self, force: bool = False) -> T:
         """Loads and validates settings from disk or backup into the cached model."""
@@ -92,23 +94,31 @@ class JsonSettingsStore(Generic[T]):
             if not force and self._cached_model is not None:
                 return self._cached_model
 
+            primary_err: str | None = None
+            backup_err: str | None = None
+
             if not self.settings_file.exists():
+                primary_err = f"Settings file not found: {self.settings_file}"
                 if self.backup_file and self.backup_file.exists():
                     try:
                         with open(self.backup_file, "r", encoding="utf-8") as bf:
                             data = json.load(bf)
                         self._raw_data = copy.deepcopy(data)
                         self._cached_model = self.model_cls.model_validate(data)
+                        self.loaded_from_source = "backup"
+                        self.last_error = None
                         logger.warning(
                             f"[SETTINGS_STORE] Settings file {self.settings_file} missing; recovered from backup: {self.backup_file}"
                         )
                         return self._cached_model
                     except (OSError, json.JSONDecodeError, ValueError) as be:
-                        logger.error(
-                            f"[SETTINGS_STORE] Failed loading backup {self.backup_file}: {be}"
-                        )
+                        backup_err = f"Failed loading backup {self.backup_file}: {be}"
+                        logger.error(f"[SETTINGS_STORE] {backup_err}")
+
                 self._raw_data = copy.deepcopy(self.default_data)
                 self._cached_model = self.model_cls.model_validate(self.default_data)
+                self.loaded_from_source = "defaults"
+                self.last_error = backup_err or primary_err
                 return self._cached_model
 
             try:
@@ -116,26 +126,32 @@ class JsonSettingsStore(Generic[T]):
                     data = json.load(f)
                 self._raw_data = copy.deepcopy(data)
                 self._cached_model = self.model_cls.model_validate(data)
+                self.loaded_from_source = "primary"
+                self.last_error = None
                 return self._cached_model
             except (OSError, json.JSONDecodeError, ValueError) as e:
-                logger.error(f"[SETTINGS_STORE] Failed loading {self.settings_file}: {e}")
+                primary_err = f"Failed loading {self.settings_file}: {e}"
+                logger.error(f"[SETTINGS_STORE] {primary_err}")
                 if self.backup_file and self.backup_file.exists():
                     try:
                         with open(self.backup_file, "r", encoding="utf-8") as bf:
                             data = json.load(bf)
                         self._raw_data = copy.deepcopy(data)
                         self._cached_model = self.model_cls.model_validate(data)
+                        self.loaded_from_source = "backup"
+                        self.last_error = None
                         logger.warning(
                             f"[SETTINGS_STORE] Recovered settings from backup: {self.backup_file}"
                         )
                         return self._cached_model
                     except (OSError, json.JSONDecodeError, ValueError) as be:
-                        logger.error(
-                            f"[SETTINGS_STORE] Failed loading backup {self.backup_file}: {be}"
-                        )
+                        backup_err = f"Failed loading backup {self.backup_file}: {be}"
+                        logger.error(f"[SETTINGS_STORE] {backup_err}")
 
                 self._raw_data = copy.deepcopy(self.default_data)
                 self._cached_model = self.model_cls.model_validate(self.default_data)
+                self.loaded_from_source = "defaults"
+                self.last_error = f"{primary_err}; {backup_err}" if backup_err else primary_err
                 return self._cached_model
 
     def save(self, payload: dict[str, Any] | T) -> None:
@@ -153,6 +169,8 @@ class JsonSettingsStore(Generic[T]):
             # Update cache in-memory immediately
             self._raw_data = copy.deepcopy(raw_dict)
             self._cached_model = validated_model
+            self.loaded_from_source = "primary"
+            self.last_error = None
 
     def get_model(self) -> T:
         """Returns the active cached model, loading from disk if not yet loaded."""
@@ -170,4 +188,6 @@ class JsonSettingsStore(Generic[T]):
         with self._lock:
             self._cached_model = None
             self._raw_data = {}
+            self.loaded_from_source = None
+            self.last_error = None
 

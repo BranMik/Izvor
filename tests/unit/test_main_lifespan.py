@@ -204,3 +204,22 @@ async def test_close_all_connections_spares_live_worker_thread_and_drains_teleme
         t.join(timeout=2.0)
         db_manager.close_all_connections()
         db_manager.configure_paths(db_path=prev_db_path)
+
+
+@pytest.mark.anyio
+async def test_lifespan_fails_fast_when_system_settings_missing(tmp_path):
+    """Startup fails fast with FileNotFoundError when system_settings.json and backup are missing."""
+    from config_store.system_settings import system_settings_manager
+
+    missing_file = tmp_path / "missing_system_settings.json"
+    missing_backup = tmp_path / "missing_system_settings_backup.json"
+    system_settings_manager.configure_paths(
+        settings_file=missing_file,
+        backup_file=missing_backup,
+    )
+    try:
+        with pytest.raises(FileNotFoundError, match="Required system settings file not found"):
+            async with main.lifespan(main.app):
+                pass
+    finally:
+        system_settings_manager.reset_paths()

@@ -29,16 +29,21 @@ from config_store.system_settings import (
 
 
 def test_system_settings_defaults():
+    import pytest
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         settings_file = Path(tmp_dir) / "system_settings.json"
-        mgr = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+        backup_file = Path(tmp_dir) / "system_settings_backup.json"
+        mgr = SystemSettingsManager(settings_file=settings_file, backup_file=backup_file, auto_load=True)
 
         assert mgr.max_file_size_mb == 50.0
         assert mgr.get_max_file_size_bytes() == 50 * 1024 * 1024
-        assert mgr.default_fast_model == "gemini/gemini-4-hydrogen"
-        assert mgr.default_reasoning_model == "mistral/mistral-large-latest"
-        assert mgr.get_default_fast_model() == "gemini/gemini-4-hydrogen"
-        assert mgr.get_default_reasoning_model() == "mistral/mistral-large-latest"
+        assert mgr.default_fast_model == ""
+        assert mgr.default_reasoning_model == ""
+        with pytest.raises(RuntimeError, match="default_fast_model"):
+            mgr.get_default_fast_model()
+        with pytest.raises(RuntimeError, match="default_reasoning_model"):
+            mgr.get_default_reasoning_model()
 
         rag = mgr.get_rag_config()
         assert rag["max_chunk_chars"] == 3500
@@ -147,6 +152,8 @@ def test_system_settings_backup_resilience():
 
 
 def test_system_settings_module_convenience(tmp_path):
+    import pytest
+
     settings_file = tmp_path / "system_settings.json"
     backup_file = tmp_path / "system_settings_backup.json"
     from config_store.system_settings import system_settings_manager
@@ -166,11 +173,13 @@ def test_system_settings_module_convenience(tmp_path):
     set_workspace_write_blacklist_additional(["secrets/*", "custom.key"])
     assert get_workspace_write_blacklist_additional() == ["secrets/*", "custom.key"]
 
-    assert get_default_fast_model() == "gemini/gemini-4-hydrogen"
+    with pytest.raises(RuntimeError, match="default_fast_model"):
+        get_default_fast_model()
     set_default_fast_model("test/fast-model")
     assert get_default_fast_model() == "test/fast-model"
 
-    assert get_default_reasoning_model() == "mistral/mistral-large-latest"
+    with pytest.raises(RuntimeError, match="default_reasoning_model"):
+        get_default_reasoning_model()
     set_default_reasoning_model("test/reasoning-model")
     assert get_default_reasoning_model() == "test/reasoning-model"
 
@@ -449,6 +458,133 @@ def test_system_settings_p3_retention_defaults_persistence_and_clamping(tmp_path
     assert mgr2.get_retention_flat_histories_days() == 45
     assert mgr2.get_retention_audit_anchors_compact_enabled() is False
     assert mgr2.get_retention_prune_interval_seconds() == 60.0
+
+
+def test_validate_required_startup_settings_fails_when_file_missing(tmp_path):
+    """Startup validation fails fast with FileNotFoundError when both primary and backup are missing."""
+    import pytest
+
+    mgr = SystemSettingsManager(
+        settings_file=tmp_path / "missing.json",
+        backup_file=tmp_path / "missing_backup.json",
+        auto_load=True,
+    )
+    with pytest.raises(FileNotFoundError, match="Required system settings file not found"):
+        mgr.validate_required_startup_settings()
+
+
+def test_validate_required_startup_settings_fails_when_corrupted_without_backup(tmp_path):
+    """Startup validation fails fast with RuntimeError when JSON is corrupted and no backup exists."""
+    import pytest
+
+    settings_file = tmp_path / "system_settings.json"
+    backup_file = tmp_path / "system_settings_backup.json"
+    settings_file.write_text("{not valid json", encoding="utf-8")
+
+    mgr = SystemSettingsManager(
+        settings_file=settings_file,
+        backup_file=backup_file,
+        auto_load=True,
+    )
+    with pytest.raises(RuntimeError, match="Failed to load valid system settings"):
+        mgr.validate_required_startup_settings()
+
+
+def test_validate_required_startup_settings_recovers_from_backup_when_primary_missing(tmp_path):
+    """When primary system_settings.json is missing, load() and startup validation recover from backup."""
+    settings_file = tmp_path / "system_settings.json"
+    backup_file = tmp_path / "system_settings_backup.json"
+    backup_file.write_text(
+        json.dumps({
+            "default_fast_model": "provider/fast-backup",
+            "default_reasoning_model": "provider/reason-backup",
+        }),
+        encoding="utf-8",
+    )
+
+    mgr = SystemSettingsManager(
+        settings_file=settings_file,
+        backup_file=backup_file,
+        auto_load=True,
+    )
+    mgr.validate_required_startup_settings()
+    assert mgr.get_default_fast_model() == "provider/fast-backup"
+    assert mgr.get_default_reasoning_model() == "provider/reason-backup"
+
+
+def test_validate_required_startup_settings_fails_when_models_missing_or_blank(tmp_path):
+    """Startup validation fails fast with ValueError when required default models are missing or blank."""
+    import pytest
+
+    settings_file = tmp_path / "system_settings.json"
+    backup_file = tmp_path / "system_settings_backup.json"
+    settings_file.write_text(json.dumps({"log_level": "INFO"}), encoding="utf-8")
+
+    mgr = SystemSettingsManager(
+        settings_file=settings_file,
+        backup_file=backup_file,
+        auto_load=True,
+    )
+    with pytest.raises(ValueError, match="default_fast_model"):
+        mgr.validate_required_startup_settings()
+
+    settings_file.write_text(
+        json.dumps({"default_fast_model": "provider/fast", "default_reasoning_model": "   "}),
+        encoding="utf-8",
+    )
+    mgr.load(force=True)
+    with pytest.raises(ValueError, match="default_reasoning_model"):
+        mgr.validate_required_startup_settings()
+
+
+def test_core_config_default_models_fail_fast_without_hardcoded_fallback(tmp_path):
+    """core.config default model getters and SSOT loader fail fast when unconfigured (no hardcoded fallback)."""
+    import pytest
+    from config_store.system_settings import system_settings_manager
+    from core.config import (
+        _load_default_models_from_ssot,
+        get_default_fast_model,
+        get_default_reasoning_model,
+        set_default_model_providers,
+    )
+
+    missing_primary = tmp_path / "missing.json"
+    missing_backup = tmp_path / "missing_backup.json"
+    with pytest.raises(FileNotFoundError, match="Required system settings file not found"):
+        _load_default_models_from_ssot(settings_file=missing_primary, backup_file=missing_backup)
+
+    corrupt_primary = tmp_path / "corrupt.json"
+    corrupt_primary.write_text("{bad json", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="Failed to load default models"):
+        _load_default_models_from_ssot(settings_file=corrupt_primary, backup_file=missing_backup)
+
+    backup_only = tmp_path / "backup.json"
+    backup_only.write_text(
+        json.dumps({"default_fast_model": "p/fast", "default_reasoning_model": "p/reason"}),
+        encoding="utf-8",
+    )
+    assert _load_default_models_from_ssot(settings_file=missing_primary, backup_file=backup_only) == (
+        "p/fast",
+        "p/reason",
+    )
+
+    empty_mgr = SystemSettingsManager(
+        settings_file=missing_primary,
+        backup_file=missing_backup,
+        auto_load=True,
+    )
+    try:
+        set_default_model_providers(
+            fast_provider=lambda: empty_mgr.get_default_fast_model(),
+            reasoning_provider=lambda: empty_mgr.get_default_reasoning_model(),
+        )
+        with pytest.raises(RuntimeError, match="default_fast_model"):
+            get_default_fast_model()
+        with pytest.raises(RuntimeError, match="default_reasoning_model"):
+            get_default_reasoning_model()
+    finally:
+        system_settings_manager._register_core_providers()
+
 
 
 

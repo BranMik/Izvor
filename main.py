@@ -228,10 +228,24 @@ async def lifespan(app: FastAPI):
         logger.critical(concurrency_msg)
         raise RuntimeError(concurrency_msg)
 
-    # Ensure SQLite schema and WAL mode are initialized before any queries execute
+    # Fail fast if system_settings.json (and its emergency backup) is missing, invalid, or lacks required models
+    from config_store.system_settings import validate_system_settings_startup
     from core.database import init_db
     from services.readiness import readiness_registry
 
+    try:
+        validate_system_settings_startup()
+        readiness_registry.mark_component("system_settings", "ready", critical=True)
+    except Exception as sys_settings_err:
+        readiness_registry.mark_component(
+            "system_settings",
+            "failed",
+            detail=f"{type(sys_settings_err).__name__}: {str(sys_settings_err)[:160]}",
+            critical=True,
+        )
+        raise
+
+    # Ensure SQLite schema and WAL mode are initialized before any queries execute
     try:
         init_db()
         readiness_registry.mark_component("database", "ready", critical=True)

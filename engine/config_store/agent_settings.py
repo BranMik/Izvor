@@ -152,8 +152,8 @@ class AgentSettingsManager:
             self.system_settings = system_settings_manager
 
         self._orchestrator_config.update({
-            "fast_model": self.system_settings.get_default_fast_model(),
-            "reasoning_model": self.system_settings.get_default_reasoning_model(),
+            "fast_model": self.system_settings.default_fast_model,
+            "reasoning_model": self.system_settings.default_reasoning_model,
             "username": "Orchestrator",
             "icon_url": "static/image_99.png",
         })
@@ -522,8 +522,8 @@ class AgentSettingsManager:
 
         if "orchestrator" in data and isinstance(data["orchestrator"], dict):
             raw_orch = data["orchestrator"]
-            default_fast = self.system_settings.get_default_fast_model()
-            default_reasoning = self.system_settings.get_default_reasoning_model()
+            default_fast = self.system_settings.default_fast_model
+            default_reasoning = self.system_settings.default_reasoning_model
             self.orchestrator_config.update({
                 "fast_model": str(raw_orch.get("fast_model", default_fast)).strip(),
                 "reasoning_model": str(raw_orch.get("reasoning_model", default_reasoning)).strip(),
@@ -616,8 +616,8 @@ class AgentSettingsManager:
 
         if isinstance(data, dict):
             raw_orch = data.get("orchestrator", {})
-            default_fast = self.system_settings.get_default_fast_model()
-            default_reasoning = self.system_settings.get_default_reasoning_model()
+            default_fast = self.system_settings.default_fast_model
+            default_reasoning = self.system_settings.default_reasoning_model
             self.orchestrator_config.clear()
             if isinstance(raw_orch, dict) and raw_orch:
                 self.orchestrator_config.update({

@@ -94,8 +94,8 @@ class McpServerConfig(BaseModel):
 
 
 class SystemSettingsModel(BaseModel):
-    default_fast_model: str = "gemini/gemini-4-hydrogen"
-    default_reasoning_model: str = "mistral/mistral-large-latest"
+    default_fast_model: str = ""
+    default_reasoning_model: str = ""
     internal_revisor_enabled: bool = True
     shared_evidence_max_chars: int = 40_000
     max_file_size_mb: float = 50.0
@@ -215,16 +215,23 @@ class SystemSettingsManager:
     ):
         self._owns_core_providers: bool = bool(register_core_providers)
         self._custom_settings_file: bool = settings_file is not None
-        self.default_settings_file = settings_file or SYSTEM_SETTINGS_FILE
-        self.default_backup_file = backup_file or SYSTEM_BACKUP_FILE
+        self.default_settings_file: Path = Path(settings_file) if settings_file is not None else SYSTEM_SETTINGS_FILE
+        if backup_file is not None:
+            self.default_backup_file: Path | None = Path(backup_file)
+        elif settings_file is not None:
+            self.default_backup_file = None
+        else:
+            self.default_backup_file = SYSTEM_BACKUP_FILE
         self._store: JsonSettingsStore[SystemSettingsModel] = JsonSettingsStore(
             self.default_settings_file,
             SystemSettingsModel,
             backup_file=self.default_backup_file,
         )
 
-        self.default_fast_model: str = "gemini/gemini-4-hydrogen"
-        self.default_reasoning_model: str = "mistral/mistral-large-latest"
+        self.default_fast_model: str = ""
+        self.default_reasoning_model: str = ""
+        self._loaded_from_disk: bool = False
+        self._last_load_error: str | None = None
         self.internal_revisor_enabled: bool = True
         self.shared_evidence_max_chars: int = 40_000
         self._shared_evidence_max_chars_manually_set: bool = False
@@ -338,6 +345,8 @@ class SystemSettingsManager:
         if settings_file is not None:
             self.default_settings_file = Path(settings_file)
             self._custom_settings_file = True
+            if backup_file is None:
+                self.default_backup_file = None
         if backup_file is not None:
             self.default_backup_file = Path(backup_file)
         self._store = JsonSettingsStore(
@@ -346,8 +355,11 @@ class SystemSettingsManager:
             backup_file=self.default_backup_file,
         )
         self._last_loaded_mtime = 0.0
+        self._loaded_from_disk = False
+        self._last_load_error = None
         self._store.invalidate_cache()
-        if self.default_settings_file.exists():
+        has_backup = bool(self.default_backup_file and self.default_backup_file.exists())
+        if self.default_settings_file.exists() or has_backup:
             self.load(force=True)
         else:
             self._apply_model_to_fields(SystemSettingsModel())
@@ -365,8 +377,11 @@ class SystemSettingsManager:
             backup_file=self.default_backup_file,
         )
         self._last_loaded_mtime = 0.0
+        self._loaded_from_disk = False
+        self._last_load_error = None
         self._store.invalidate_cache()
-        if self.default_settings_file.exists():
+        has_backup = bool(self.default_backup_file and self.default_backup_file.exists())
+        if self.default_settings_file.exists() or has_backup:
             try:
                 self.load(force=True)
             except (OSError, ValueError, TypeError, ValidationError) as err:
@@ -411,12 +426,8 @@ class SystemSettingsManager:
             }
 
     def _apply_model_to_fields(self, model: SystemSettingsModel) -> None:
-        self.default_fast_model = (
-            str(model.default_fast_model).strip() or "gemini/gemini-4-hydrogen"
-        )
-        self.default_reasoning_model = (
-            str(model.default_reasoning_model).strip() or "mistral/mistral-large-latest"
-        )
+        self.default_fast_model = str(model.default_fast_model or "").strip()
+        self.default_reasoning_model = str(model.default_reasoning_model or "").strip()
         self.internal_revisor_enabled = bool(getattr(model, "internal_revisor_enabled", True))
         self.shared_evidence_max_chars = int(getattr(model, "shared_evidence_max_chars", 40_000))
         self.max_file_size_mb = float(model.max_file_size_mb)
@@ -581,24 +592,39 @@ class SystemSettingsManager:
 
     def load(self, force: bool = False) -> None:
         target_file = self.active_settings_file
-        if not target_file.exists():
+        has_primary = target_file.exists()
+        has_backup = bool(self.default_backup_file and self.default_backup_file.exists())
+        if not has_primary and not has_backup:
+            self._loaded_from_disk = False
+            self._last_load_error = f"System settings file not found: {target_file}"
             return
 
         try:
-            mtime = target_file.stat().st_mtime
+            mtime_target = target_file if has_primary else self.default_backup_file
+            mtime = mtime_target.stat().st_mtime
             if not force and mtime == self._last_loaded_mtime and self._last_loaded_mtime > 0:
                 return
 
             model = self._store.load(force=True)
-            data = self._store.get_raw_data()
+            if self._store.loaded_from_source not in ("primary", "backup"):
+                self._loaded_from_disk = False
+                self._last_load_error = (
+                    self._store.last_error or f"Failed to load valid JSON from {target_file}"
+                )
+                return
 
+            data = self._store.get_raw_data()
             ConfigIntegrityValidator.check_system_settings_integrity(data)
 
             self._raw_data = copy.deepcopy(data)
             self._apply_model_to_fields(model)
+            self._loaded_from_disk = True
+            self._last_load_error = None
             self._last_loaded_mtime = mtime
-            logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {target_file}")
+            logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {mtime_target} ({self._store.loaded_from_source})")
         except Exception as e:  # noqa: BLE001
+            self._loaded_from_disk = False
+            self._last_load_error = str(e)
             logger.error(f"[SYSTEM_SETTINGS] Failed to load {target_file}: {e}")
 
     def save(self) -> None:
@@ -678,6 +704,8 @@ class SystemSettingsManager:
             self._store.save(payload)
             self._last_loaded_mtime = target_file.stat().st_mtime
             self._raw_data = copy.deepcopy(payload)
+            self._loaded_from_disk = True
+            self._last_load_error = None
             self._maybe_update_backup(payload)
         except (OSError, TypeError, ValueError) as e:
             logger.error(f"[SYSTEM_SETTINGS] Error saving settings to {target_file}: {e}")
@@ -686,6 +714,8 @@ class SystemSettingsManager:
         try:
             now = time.time()
             backup = self.default_backup_file
+            if not backup:
+                return
             if not backup.exists() or (now - backup.stat().st_mtime > BACKUP_INTERVAL_SECONDS):
                 backup_store = JsonSettingsStore(backup, SystemSettingsModel)
                 backup_store.save(payload)
@@ -693,13 +723,50 @@ class SystemSettingsManager:
         except (OSError, TypeError, ValueError) as e:
             logger.warning(f"[SYSTEM_SETTINGS] Backup update failed: {e}")
 
-    # --- Default Model Settings ---
+    # --- Default Model Settings & Startup Validation ---
+    def validate_required_startup_settings(self) -> None:
+        """
+        Fails fast at startup if system_settings.json (and emergency backup) cannot be loaded
+        or lacks required default_fast_model / default_reasoning_model entries.
+        """
+        self.load(force=True)
+        has_primary = self.active_settings_file.exists()
+        has_backup = bool(self.default_backup_file and self.default_backup_file.exists())
+        if not self._loaded_from_disk:
+            if not has_primary and not has_backup:
+                raise FileNotFoundError(
+                    f"Required system settings file not found: {self.active_settings_file} "
+                    f"(backup: {self.default_backup_file}). Create config/settings/system_settings.json before starting the server."
+                )
+            raise RuntimeError(
+                f"Failed to load valid system settings from {self.active_settings_file} "
+                f"(and backup {self.default_backup_file}): {self._last_load_error}"
+            )
+        if not self.default_fast_model:
+            raise ValueError(
+                f"Missing or empty required setting 'default_fast_model' in {self.active_settings_file}."
+            )
+        if not self.default_reasoning_model:
+            raise ValueError(
+                f"Missing or empty required setting 'default_reasoning_model' in {self.active_settings_file}."
+            )
+
     def get_default_fast_model(self) -> str:
         self.load()
+        if not self.default_fast_model:
+            raise RuntimeError(
+                f"System setting 'default_fast_model' is not configured (settings file: {self.active_settings_file}). "
+                "Configure 'default_fast_model' in system_settings.json."
+            )
         return str(self.default_fast_model)
 
     def get_default_reasoning_model(self) -> str:
         self.load()
+        if not self.default_reasoning_model:
+            raise RuntimeError(
+                f"System setting 'default_reasoning_model' is not configured (settings file: {self.active_settings_file}). "
+                "Configure 'default_reasoning_model' in system_settings.json."
+            )
         return str(self.default_reasoning_model)
 
     def set_default_fast_model(self, model: str, save: bool = True) -> None:
@@ -1374,6 +1441,10 @@ system_settings_manager = SystemSettingsManager(register_core_providers=True)
 
 def get_system_settings_snapshot() -> SystemSettingsModel:
     return system_settings_manager.get_snapshot()
+
+
+def validate_system_settings_startup() -> None:
+    system_settings_manager.validate_required_startup_settings()
 
 
 def get_max_file_size_mb() -> float:

@@ -23,6 +23,7 @@ from .paths import (
     PROMPTS_DIR,
     PYPROJECT_FILE,
     SYSTEM_AGENT_SETTINGS_FILE,
+    SYSTEM_BACKUP_FILE,
     SYSTEM_SETTINGS_FILE,
 )
 
@@ -300,27 +301,42 @@ SYSTEM_AGENTS_CONFIG: dict[str, dict[str, Any]] = _load_system_agents_from_ssot(
 ORCHESTRATOR_CONFIG: dict[str, Any] = _load_orchestrator_from_ssot()
 
 
-def _load_default_models_from_ssot() -> tuple[str, str]:
-    """Loads default_fast_model and default_reasoning_model from config/settings/system_settings.json SSOT."""
-    settings_file = SYSTEM_SETTINGS_FILE
-    fast_default = "gemini/gemini-4-hydrogen"
-    reasoning_default = "mistral/mistral-large-latest"
-    if not settings_file.exists():
-        return fast_default, reasoning_default
-    try:
-        import json
+def _load_default_models_from_ssot(
+    settings_file: Path | None = None,
+    backup_file: Path | None = None,
+) -> tuple[str, str]:
+    """Loads default_fast_model and default_reasoning_model from config/settings/system_settings.json (or backup) SSOT."""
+    import json
 
-        with open(settings_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        fast = str(data.get("default_fast_model", fast_default)).strip() or fast_default
-        reasoning = (
-            str(data.get("default_reasoning_model", reasoning_default)).strip()
-            or reasoning_default
+    primary = settings_file if settings_file is not None else SYSTEM_SETTINGS_FILE
+    backup = backup_file if backup_file is not None else SYSTEM_BACKUP_FILE
+
+    candidates = [p for p in (primary, backup) if p is not None]
+    if not any(p.exists() for p in candidates):
+        raise FileNotFoundError(
+            f"Required system settings file not found: {primary} (backup: {backup})."
         )
-        return fast, reasoning
-    except (OSError, json.JSONDecodeError, ValueError) as e:
-        logger.debug(f"[CONFIG] System settings default models load error: {e}")
-        return fast_default, reasoning_default
+
+    last_err: str | None = None
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                last_err = f"Expected JSON object in {candidate}, got {type(data).__name__}"
+                continue
+            fast = str(data.get("default_fast_model", "") or "").strip()
+            reasoning = str(data.get("default_reasoning_model", "") or "").strip()
+            return fast, reasoning
+        except (OSError, json.JSONDecodeError, ValueError) as e:
+            last_err = f"{candidate}: {e}"
+            logger.debug(f"[CONFIG] System settings default models load error ({candidate}): {e}")
+
+    raise RuntimeError(
+        f"Failed to load default models from {primary} (backup: {backup}): {last_err}"
+    )
 
 
 _fast_model_provider: Callable[[], str] | None = None
@@ -339,25 +355,44 @@ def set_default_model_providers(
         _reasoning_model_provider = reasoning_provider
 
 
+def reset_default_model_providers() -> None:
+    """Clears injectable default model providers (used for isolated unit tests)."""
+    global _fast_model_provider, _reasoning_model_provider
+    _fast_model_provider = None
+    _reasoning_model_provider = None
+
+
 def get_default_fast_model() -> str:
     """Returns the system-level default fast LLM model dynamically from SSOT."""
     if _fast_model_provider is not None:
-        try:
-            return _fast_model_provider()
-        except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-            logger.debug(f"[CONFIG] Fast model provider fallback: {exc}")
+        val = str(_fast_model_provider() or "").strip()
+        if not val:
+            raise RuntimeError(
+                f"Configured fast model provider returned empty 'default_fast_model' (expected in {SYSTEM_SETTINGS_FILE})."
+            )
+        return val
     fast, _ = _load_default_models_from_ssot()
+    if not fast:
+        raise RuntimeError(
+            f"Missing or empty required setting 'default_fast_model' in {SYSTEM_SETTINGS_FILE}."
+        )
     return fast
 
 
 def get_default_reasoning_model() -> str:
     """Returns the system-level default reasoning LLM model dynamically from SSOT."""
     if _reasoning_model_provider is not None:
-        try:
-            return _reasoning_model_provider()
-        except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-            logger.debug(f"[CONFIG] Reasoning model provider fallback: {exc}")
+        val = str(_reasoning_model_provider() or "").strip()
+        if not val:
+            raise RuntimeError(
+                f"Configured reasoning model provider returned empty 'default_reasoning_model' (expected in {SYSTEM_SETTINGS_FILE})."
+            )
+        return val
     _, reasoning = _load_default_models_from_ssot()
+    if not reasoning:
+        raise RuntimeError(
+            f"Missing or empty required setting 'default_reasoning_model' in {SYSTEM_SETTINGS_FILE}."
+        )
     return reasoning
 
 

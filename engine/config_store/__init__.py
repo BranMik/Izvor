@@ -33,6 +33,7 @@ from config_store.system_settings import (
     SystemSettingsModel,
     get_system_settings_snapshot,
     system_settings_manager,
+    validate_system_settings_startup,
 )
 from config_store.workflow_manager import WorkflowManager, slugify, workflow_manager
 
@@ -66,6 +67,7 @@ __all__ = [
     "sync_settings_if_modified",
     "system_settings_manager",
     "unregister_on_agents_changed",
+    "validate_system_settings_startup",
     "workflow_manager",
 ]
 
