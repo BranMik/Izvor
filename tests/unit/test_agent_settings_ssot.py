@@ -598,7 +598,7 @@ def test_base_avatar_url_env_override_and_resolve():
 
 
 def test_discussion_scribe_system_agent_ssot_loaded():
-    """Verify DiscussionScribe is registered in system agent SSOT with mistral-small-latest."""
+    """Verify DiscussionScribe and PricingAgent are registered in system agent SSOT."""
     from core.config import SYSTEM_AGENTS_CONFIG, get_system_agent_model
     from config_store.agent_settings import settings_manager
 
@@ -606,6 +606,11 @@ def test_discussion_scribe_system_agent_ssot_loaded():
     assert "DiscussionScribe" in SYSTEM_AGENTS_CONFIG
     assert settings_manager.system_agents_config["DiscussionScribe"]["model"] == "mistral/mistral-small-latest"
     assert get_system_agent_model("DiscussionScribe") == "mistral/mistral-small-latest"
+
+    assert "PricingAgent" in settings_manager.system_agents_config
+    assert "PricingAgent" in SYSTEM_AGENTS_CONFIG
+    assert settings_manager.system_agents_config["PricingAgent"]["model"] == "gemini/gemini-4-hydrogen"
+    assert get_system_agent_model("PricingAgent") == "gemini/gemini-4-hydrogen"
 
 
 def test_system_agent_settings_prefers_primary_and_fails_over_to_backup_without_corrupting_backup(tmp_path):

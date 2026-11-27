@@ -5,12 +5,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.config import get_orchestrator_fast_model
+from core.config import get_orchestrator_fast_model, get_system_agent_model
+from services.pricing_feeds import (
+    LITELLM_PRICING_JSON_URL,
+    OPENROUTER_MODELS_API_URL,
+    _lookup_litellm_pricing,
+    _lookup_openrouter_pricing,
+    clear_feed_cache,
+    configure_feed_fetcher,
+    fetch_pricing_from_feeds,
+    reset_feed_fetcher,
+)
 from services.pricing_service import (
     MAX_VALID_PRICE_PER_1M,
     MIN_VALID_PRICE_PER_1M,
     PRICING_TOOL_SCHEMAS,
-    _extract_pricing_from_search_text,
+    PricingService,
     _is_valid_price_pair,
     get_baseline_for_model,
     load_baseline_pricing,
@@ -22,7 +32,10 @@ from services.pricing_service import (
 def clean_pricing_cache(tmp_path):
     temp_cache = tmp_path / "test_model_pricing_cache.json"
     pricing_service.configure_paths(cache_file=temp_cache)
+    clear_feed_cache()
     yield
+    clear_feed_cache()
+    reset_feed_fetcher()
     pricing_service.reset_paths()
     if temp_cache.exists():
         temp_cache.unlink()
@@ -74,7 +87,7 @@ def test_get_baseline_from_litellm_model_cost():
     """TKT-907: If not in baseline JSON, query litellm.model_cost community registry."""
     mock_cost = {
         "special-unlisted-model": {
-            "input_cost_per_token": 0.000003,   # $3.00 / 1M
+            "input_cost_per_token": 0.000003,  # $3.00 / 1M
             "output_cost_per_token": 0.000015,  # $15.00 / 1M
         }
     }
@@ -99,46 +112,171 @@ def test_pricing_tool_schemas():
     tool_names = [tool["function"]["name"] for tool in PRICING_TOOL_SCHEMAS]
     assert "web_search" in tool_names
     assert "fetch_web_page" in tool_names
+    fetch_tool = next(t for t in PRICING_TOOL_SCHEMAS if t["function"]["name"] == "fetch_web_page")
+    assert fetch_tool["function"]["parameters"]["properties"]["max_chars"]["default"] == 12000
 
 
-def test_extract_pricing_from_search_text():
-    snippet_1 = "Google Gemini 3.8 Flash pricing: $0.75 per 1M input tokens and $3.75 per 1M output tokens."
-    in_p, out_p = _extract_pricing_from_search_text(snippet_1, "gemini-3.8-flash")
-    assert in_p == 0.75
-    assert out_p == 3.75
+def test_litellm_live_feed_lookup():
+    """Verify strict canonical lookup in LiteLLM JSON without cross-provider leaks."""
+    payload = {
+        "gemini/gemini-4-hydrogen": {
+            "input_cost_per_token": 0.0000015,
+            "output_cost_per_token": 0.0000075,
+        },
+        "together_ai/deepseek-ai/DeepSeek-V4-Pro-0813": {
+            "input_cost_per_token": 0.00000132,
+            "output_cost_per_token": 0.00000396,
+        },
+        "openai/gpt-oss-120b": {
+            "input_cost_per_token": 0.000009,
+            "output_cost_per_token": 0.000027,
+        },
+        "anthropic/claude-opus-5.5": {
+            "input_cost_per_token": 0.000004,
+            "output_cost_per_token": 0.000020,
+        },
+    }
 
-    snippet_2 = "Mistral Large: Input prompt tokens: $2.00/1M, Output completion tokens: $6.00/1M"
-    in_p2, out_p2 = _extract_pricing_from_search_text(snippet_2, "mistral-large")
-    assert in_p2 == 2.00
-    assert out_p2 == 6.00
+    gem = _lookup_litellm_pricing("gemini/gemini-4-hydrogen", payload)
+    assert gem is not None
+    assert gem["input_price_per_1m"] == 1.50
+    assert gem["output_price_per_1m"] == 7.50
+    assert gem["source"] == "LiteLLM Live Pricing Feed"
+
+    tog = _lookup_litellm_pricing("together_ai/deepseek-ai/DeepSeek-V4-Pro-0813", payload)
+    assert tog is not None
+    assert tog["input_price_per_1m"] == 1.32
+    assert tog["output_price_per_1m"] == 3.96
+
+    # Never strip groq/ prefix onto openai/gpt-oss-120b
+    assert _lookup_litellm_pricing("groq/openai/gpt-oss-120b", payload) is None
+
+    # Anthropic dash/dot version separator normalization
+    anth = _lookup_litellm_pricing("anthropic/claude-opus-5-5", payload)
+    assert anth is not None
+    assert anth["input_price_per_1m"] == 4.00
+    assert anth["output_price_per_1m"] == 20.00
+
+
+def test_openrouter_live_feed_lookup():
+    """Verify OpenRouter /api/v1/models lookup maps canonical provider IDs and skips invalid entries."""
+    payload = {
+        "data": [
+            {
+                "id": "openai/gpt-6.2-astra",
+                "pricing": {"prompt": "0.000008", "completion": "0.00004"},
+            },
+            {
+                "id": "google/gemini-4-hydrogen",
+                "pricing": {"prompt": "0.0000015", "completion": "0.0000075"},
+            },
+            {
+                "id": "openrouter/auto",
+                "pricing": {"prompt": "-1", "completion": "-1"},
+            },
+            {
+                "id": "google/gemini-4-hydrogen:free",
+                "pricing": {"prompt": "0", "completion": "0"},
+            },
+        ]
+    }
+
+    or_res = _lookup_openrouter_pricing("openrouter/openai/gpt-6.2-astra", payload)
+    assert or_res is not None
+    assert or_res["input_price_per_1m"] == 8.00
+    assert or_res["output_price_per_1m"] == 40.00
+    assert or_res["source"] == "OpenRouter Live Models API"
+
+    gem_res = _lookup_openrouter_pricing("gemini/gemini-4-hydrogen", payload)
+    assert gem_res is not None
+    assert gem_res["input_price_per_1m"] == 1.50
+    assert gem_res["output_price_per_1m"] == 7.50
+
+    assert _lookup_openrouter_pricing("openrouter/auto", payload) is None
+    assert _lookup_openrouter_pricing("groq/openai/gpt-oss-120b", payload) is None
+    assert _lookup_openrouter_pricing("together_ai/deepseek-ai/DeepSeek-V4-Pro-0813", payload) is None
+
+
+@pytest.mark.anyio
+async def test_pricing_feeds_batch_cache_reuses_downloaded_payload():
+    """Verify fetch_pricing_from_feeds downloads each feed once per batch until cleared."""
+    calls: list[str] = []
+
+    async def fake_feed_fetcher(url: str):
+        calls.append(url)
+        if url == LITELLM_PRICING_JSON_URL:
+            return {
+                "gemini/gemini-4-hydrogen": {
+                    "input_cost_per_token": 0.0000015,
+                    "output_cost_per_token": 0.0000075,
+                },
+                "openai/gpt-6.1-terra": {
+                    "input_cost_per_token": 0.000001,
+                    "output_cost_per_token": 0.000005,
+                },
+            }
+        if url == OPENROUTER_MODELS_API_URL:
+            return {"data": []}
+        return None
+
+    configure_feed_fetcher(fake_feed_fetcher)
+    r1 = await fetch_pricing_from_feeds("gemini/gemini-4-hydrogen")
+    r2 = await fetch_pricing_from_feeds("openai/gpt-6.1-terra")
+
+    assert r1 is not None and r1["input_price_per_1m"] == 1.50
+    assert r2 is not None and r2["input_price_per_1m"] == 1.00
+    assert calls == [LITELLM_PRICING_JSON_URL]
+
+    clear_feed_cache()
+    await fetch_pricing_from_feeds("gemini/gemini-4-hydrogen")
+    assert calls == [LITELLM_PRICING_JSON_URL, LITELLM_PRICING_JSON_URL]
 
 
 @pytest.mark.anyio
 async def test_fetch_pricing_with_agent_success():
-    # 1. First LiteLLM response triggers tool_call for web_search
-    mock_tool_call = SimpleNamespace(
+    """Verify multi-turn tool loop: web_search -> fetch_web_page (default max_chars=12000) -> JSON."""
+    search_tool_call = SimpleNamespace(
         id="call_web_search_1",
         function=SimpleNamespace(
             name="web_search",
             arguments=json.dumps({"query": "gemini-4-hydrogen API pricing per 1M tokens", "max_results": 3}),
         ),
     )
-    first_response = SimpleNamespace(
+    round_1_response = SimpleNamespace(
         choices=[
             SimpleNamespace(
                 message=SimpleNamespace(
                     role="assistant",
                     content=None,
-                    tool_calls=[mock_tool_call],
+                    tool_calls=[search_tool_call],
                 )
             )
         ]
     )
 
-    # 2. Second LiteLLM response returns structured JSON with accurate model pricing
+    fetch_tool_call = SimpleNamespace(
+        id="call_fetch_web_page_2",
+        function=SimpleNamespace(
+            name="fetch_web_page",
+            arguments=json.dumps({"url": "https://ai.google.dev/pricing"}),
+        ),
+    )
+    round_2_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[fetch_tool_call],
+                )
+            )
+        ]
+    )
+
     agent_json_output = json.dumps(
         {
             "model_name": "gemini/gemini-4-hydrogen",
+            "verified": True,
             "input_price_per_1m": 1.50,
             "output_price_per_1m": 7.50,
             "currency": "USD",
@@ -146,7 +284,7 @@ async def test_fetch_pricing_with_agent_success():
             "source_url": "https://ai.google.dev/pricing",
         }
     )
-    second_response = SimpleNamespace(
+    round_3_response = SimpleNamespace(
         choices=[
             SimpleNamespace(
                 message=SimpleNamespace(
@@ -162,17 +300,29 @@ async def test_fetch_pricing_with_agent_success():
         {
             "results": [
                 {
-                    "title": "Gemini 4 Hydrogen Pricing",
-                    "snippet": "Gemini 4 Hydrogen: $1.50/1M input, $7.50/1M output.",
+                    "title": "Gemini API Pricing",
+                    "snippet": "See official pricing table.",
                     "url": "https://ai.google.dev/pricing",
                 }
             ]
         }
     )
+    mock_page_json = json.dumps(
+        {
+            "url": "https://ai.google.dev/pricing",
+            "content": "Gemini 4 Hydrogen: $1.50 per 1M input tokens, $7.50 per 1M output tokens.",
+        }
+    )
 
-    with patch("litellm.acompletion", new_callable=AsyncMock, side_effect=[first_response, second_response]) as mock_completion, \
-         patch("services.pricing_service.web_search", new_callable=AsyncMock, return_value=mock_search_json) as mock_search:
-
+    with patch(
+        "litellm.acompletion",
+        new_callable=AsyncMock,
+        side_effect=[round_1_response, round_2_response, round_3_response],
+    ) as mock_completion, patch(
+        "services.pricing_service.web_search", new_callable=AsyncMock, return_value=mock_search_json
+    ) as mock_search, patch(
+        "services.pricing_service.fetch_web_page", new_callable=AsyncMock, return_value=mock_page_json
+    ) as mock_fetch_page:
         res = await pricing_service.fetch_pricing_with_agent("gemini/gemini-4-hydrogen")
 
         assert res["input_price_per_1m"] == 1.50
@@ -180,48 +330,143 @@ async def test_fetch_pricing_with_agent_success():
         assert res["currency"] == "USD"
         assert res["source"] == "Google AI Pricing Docs"
         assert res["source_url"] == "https://ai.google.dev/pricing"
+        assert "is_fallback" not in res
         assert "updated_at" in res
 
-        # Verify litellm called with configured pricing agent model
-        assert mock_completion.call_count == 2
+        assert mock_completion.call_count == 3
         first_call_kwargs = mock_completion.call_args_list[0].kwargs
-        assert first_call_kwargs["model"] == get_orchestrator_fast_model()
+        expected_model = get_system_agent_model("PricingAgent", fallback=get_orchestrator_fast_model())
+        assert first_call_kwargs["model"] == expected_model
         assert first_call_kwargs["tools"] == PRICING_TOOL_SCHEMAS
 
-        # Verify web_search was called with query requested by agent
         mock_search.assert_called_once_with(
             query="gemini-4-hydrogen API pricing per 1M tokens",
             max_results=3,
         )
-
+        mock_fetch_page.assert_called_once_with(
+            url="https://ai.google.dev/pricing",
+            max_chars=12000,
+        )
 
 
 @pytest.mark.anyio
-async def test_fetch_pricing_from_web_agent_fallback():
-    # If agent raises an exception, fetch_pricing_from_web falls back to direct search
-    mock_search_json = json.dumps(
-        {
-            "query": "gemini-4-hydrogen API pricing cost per 1M input output tokens",
-            "results": [
-                {
-                    "title": "Gemini Developer Pricing",
-                    "snippet": "Gemini 4 Hydrogen is priced at $1.50 per 1M input tokens and $7.50 per 1M output tokens.",
-                    "url": "https://ai.google.dev/pricing",
-                }
-            ],
-        }
+async def test_fetch_pricing_from_web_feed_priority_and_clean_fallback():
+    """Structured feeds short-circuit agent; feed miss calls agent; agent failure returns clean baseline fallback."""
+    feed_hit = {
+        "input_price_per_1m": 1.50,
+        "output_price_per_1m": 7.50,
+        "currency": "USD",
+        "source": "LiteLLM Live Pricing Feed",
+        "source_url": LITELLM_PRICING_JSON_URL,
+        "updated_at": time.time(),
+    }
+    agent_mock = AsyncMock()
+    res_feed = await pricing_service.fetch_pricing_from_web(
+        "gemini/gemini-4-hydrogen",
+        feed_fetcher=AsyncMock(return_value=feed_hit),
+        agent_fetcher=agent_mock,
+    )
+    assert res_feed["source"] == "LiteLLM Live Pricing Feed"
+    agent_mock.assert_not_called()
+
+    # Feed miss delegates to agent
+    agent_hit = {
+        "input_price_per_1m": 1.50,
+        "output_price_per_1m": 7.50,
+        "currency": "USD",
+        "source": "Google AI Pricing Docs",
+        "source_url": "https://ai.google.dev/pricing",
+        "updated_at": time.time(),
+    }
+    res_agent = await pricing_service.fetch_pricing_from_web(
+        "gemini/gemini-4-hydrogen",
+        feed_fetcher=AsyncMock(return_value=None),
+        agent_fetcher=AsyncMock(return_value=agent_hit),
+    )
+    assert res_agent["source"] == "Google AI Pricing Docs"
+    assert "is_fallback" not in res_agent
+
+    # Agent error returns clean baseline fallback (never regex scraping)
+    res_err = await pricing_service.fetch_pricing_from_web(
+        "gemini/gemini-4-hydrogen",
+        feed_fetcher=AsyncMock(return_value=None),
+        agent_fetcher=AsyncMock(side_effect=Exception("LiteLLM connection error")),
+    )
+    assert res_err["is_fallback"] is True
+    assert res_err["input_price_per_1m"] == 1.50
+    assert res_err["output_price_per_1m"] == 7.50
+    assert res_err["source"] == "Google AI Documentation"
+
+
+@pytest.mark.anyio
+async def test_fetch_pricing_with_agent_unverified_and_out_of_bounds_return_fallback(tmp_path):
+    """Unverified or out-of-bounds agent outputs must return is_fallback=True and NOT poison cache."""
+    tool_call = SimpleNamespace(
+        id="call_ws",
+        function=SimpleNamespace(name="web_search", arguments=json.dumps({"query": "gemini-4-hydrogen pricing"})),
+    )
+    r1 = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(role="assistant", content=None, tool_calls=[tool_call]))]
+    )
+    r2_unverified = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    role="assistant",
+                    content=json.dumps(
+                        {
+                            "model_name": "gemini/gemini-4-hydrogen",
+                            "verified": False,
+                            "input_price_per_1m": None,
+                            "output_price_per_1m": None,
+                            "currency": "USD",
+                            "source": "Unverified",
+                            "source_url": "https://ai.google.dev/pricing",
+                        }
+                    ),
+                    tool_calls=None,
+                )
+            )
+        ]
+    )
+    r2_oob = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    role="assistant",
+                    content=json.dumps(
+                        {
+                            "model_name": "gemini/gemini-4-hydrogen",
+                            "verified": True,
+                            "input_price_per_1m": 50.0,  # > 10x baseline 1.50
+                            "output_price_per_1m": 7.50,
+                            "currency": "USD",
+                            "source": "Bad Scrape",
+                            "source_url": "https://example.com",
+                        }
+                    ),
+                    tool_calls=None,
+                )
+            )
+        ]
     )
 
-    res = await pricing_service.fetch_pricing_from_web(
-        "gemini/gemini-4-hydrogen",
-        agent_fetcher=AsyncMock(side_effect=Exception("LiteLLM connection error")),
-        search_fn=AsyncMock(return_value=mock_search_json),
-    )
-    assert res["input_price_per_1m"] == 1.50
-    assert res["output_price_per_1m"] == 7.50
-    assert "Web Search" in res["source"]
-    assert res["source_url"] == "https://ai.google.dev/pricing"
-    assert "updated_at" in res
+    with patch("litellm.acompletion", new_callable=AsyncMock, side_effect=[r1, r2_unverified]), patch(
+        "services.pricing_service.web_search", new_callable=AsyncMock, return_value="{}"
+    ):
+        res_unverified = await pricing_service.fetch_pricing_with_agent("gemini/gemini-4-hydrogen")
+    assert res_unverified["is_fallback"] is True
+    assert res_unverified["input_price_per_1m"] == 1.50
+
+    cache_path = tmp_path / "no_poison_cache.json"
+    svc = PricingService(cache_file=cache_path)
+    with patch("litellm.acompletion", new_callable=AsyncMock, side_effect=[r1, r2_oob]), patch(
+        "services.pricing_service.web_search", new_callable=AsyncMock, return_value="{}"
+    ):
+        res_oob = await svc.refresh_pricing("gemini/gemini-4-hydrogen")
+    assert res_oob["is_fallback"] is True
+    assert res_oob["input_price_per_1m"] == 1.50
+    assert not cache_path.exists()
 
 
 @pytest.mark.anyio
@@ -395,11 +640,81 @@ async def test_refresh_pricing_force_overrides_disabled_weekly_update():
 
 
 @pytest.mark.anyio
-async def test_warm_up_cache_includes_discussion_scribe_model(tmp_path):
-    """Verify startup warm_up_cache includes the dedicated DiscussionScribe SSOT model."""
-    from core.config import get_system_agent_model
-    from services.pricing_service import PricingService
+async def test_cache_hygiene_rejects_poisoned_and_stale_baseline_signature():
+    """Verify legacy 'Web Search Fallback', baseline_signature mismatch, and prune_cache()."""
+    now = time.time()
+    pricing_service.save_cache(
+        {
+            "mistral/mistral-small-latest": {
+                "input_price_per_1m": 0.50,
+                "output_price_per_1m": 1.50,
+                "currency": "USD",
+                "source": "Web Search Fallback",
+                "updated_at": now,
+            },
+            "gemini/gemini-4-hydrogen": {
+                "input_price_per_1m": 9.99,
+                "output_price_per_1m": 19.99,
+                "currency": "USD",
+                "source": "Old Live Feed",
+                "baseline_signature": "0.990000:1.990000",  # Mismatches 1.50:7.50 baseline
+                "updated_at": now,
+            },
+            "retired/old-model": {
+                "input_price_per_1m": 1.0,
+                "output_price_per_1m": 3.0,
+                "currency": "USD",
+                "source": "Old Cache",
+                "updated_at": now,
+            },
+            "openai/gpt-6.1-terra": {
+                "input_price_per_1m": 1.00,
+                "output_price_per_1m": 5.00,
+                "currency": "USD",
+                "source": "LiteLLM Live Pricing Feed",
+                "baseline_signature": "1.000000:5.000000",
+                "updated_at": now,
+            },
+        }
+    )
 
+    # get_pricing ignores poisoned and baseline-mismatched entries, falling back to baseline
+    mistral = pricing_service.get_pricing("mistral/mistral-small-latest")
+    assert mistral["input_price_per_1m"] == 0.15
+    assert mistral["output_price_per_1m"] == 0.60
+
+    gem = pricing_service.get_pricing("gemini/gemini-4-hydrogen")
+    assert gem["input_price_per_1m"] == 1.50
+    assert gem["output_price_per_1m"] == 7.50
+
+    # Valid entry with matching baseline_signature is preserved
+    terra = pricing_service.get_pricing("openai/gpt-6.1-terra")
+    assert terra["source"] == "LiteLLM Live Pricing Feed"
+
+    # refresh_pricing refreshes poisoned entry even within TTL
+    mock_fetch = AsyncMock(
+        return_value={
+            "input_price_per_1m": 0.15,
+            "output_price_per_1m": 0.60,
+            "currency": "USD",
+            "source": "LiteLLM Live Pricing Feed",
+            "updated_at": now,
+        }
+    )
+    refreshed = await pricing_service.refresh_pricing("mistral/mistral-small-latest", web_fetcher=mock_fetch)
+    mock_fetch.assert_called_once()
+    assert refreshed["baseline_signature"] == "0.150000:0.600000"
+
+    # prune_cache removes retired and baseline-stale entries while keeping valid known models
+    removed = pricing_service.prune_cache(valid_models={"openai/gpt-6.1-terra", "mistral/mistral-small-latest"})
+    assert removed == 2
+    remaining = pricing_service.load_cache()
+    assert set(remaining.keys()) == {"openai/gpt-6.1-terra", "mistral/mistral-small-latest"}
+
+
+@pytest.mark.anyio
+async def test_warm_up_cache_includes_discussion_scribe_and_pricing_agent_models(tmp_path):
+    """Verify startup warm_up_cache includes dedicated DiscussionScribe and PricingAgent SSOT models."""
     class RecordingPricingService(PricingService):
         def __init__(self, cache_file):
             super().__init__(cache_file=cache_file)
@@ -413,12 +728,14 @@ async def test_warm_up_cache_includes_discussion_scribe_model(tmp_path):
     await svc.warm_up_cache()
 
     expected_scribe_model = get_system_agent_model("DiscussionScribe", fallback="mistral/mistral-small-latest")
+    expected_pricing_model = get_system_agent_model("PricingAgent", fallback=get_orchestrator_fast_model())
     assert expected_scribe_model in svc.checked_models
+    assert expected_pricing_model in svc.checked_models
 
 
 @pytest.mark.anyio
-async def test_fetch_pricing_with_agent_falls_back_when_fast_model_key_missing():
-    """Verify PricingService resolves fast_model fallback when its API key is missing."""
+async def test_fetch_pricing_with_agent_falls_back_when_pricing_agent_key_missing():
+    """Verify PricingService resolves PricingAgent fallback when its API key is missing."""
     from core.model_catalog import configure_env_provider
 
     configure_env_provider(lambda: {"MISTRAL_API_KEY": "valid-mistral-key"})
@@ -426,7 +743,7 @@ async def test_fetch_pricing_with_agent_falls_back_when_fast_model_key_missing()
     resp.choices = [
         MagicMock(
             message=MagicMock(
-                content='{"model_name": "test-model", "input_price_per_1m": 1.0, "output_price_per_1m": 2.0, "currency": "USD", "source": "Web", "source_url": "https://test.com"}',
+                content='{"model_name": "test-model", "verified": true, "input_price_per_1m": 1.0, "output_price_per_1m": 2.0, "currency": "USD", "source": "Web", "source_url": "https://test.com"}',
                 tool_calls=None,
             )
         )
@@ -441,8 +758,6 @@ async def test_fetch_pricing_with_agent_falls_back_when_fast_model_key_missing()
 
 def test_get_baseline_for_model_lowercase_together_and_longest_prefix():
     """TKT-1219: mixed-case Together AI keys resolve accurately and exact registry beats shorter baseline prefix."""
-    from services.pricing_service import get_baseline_for_model
-
     res = get_baseline_for_model("together_ai/deepseek-ai/DeepSeek-V4-Pro-0813")
     assert res["input_price_per_1m"] == 1.32
     assert res["output_price_per_1m"] == 3.96
@@ -463,21 +778,36 @@ def test_get_baseline_for_model_lowercase_together_and_longest_prefix():
 
 @pytest.mark.anyio
 async def test_warm_up_cache_resets_web_budget_and_skips_fallback_cache_write(tmp_path):
-    """TKT-1219: warm_up_cache resets web budget per model and failed lookups do not poison cache JSON."""
-    from services.pricing_service import PricingService
+    """TKT-1219: warm_up_cache resets web budget per model and unverified lookups do not poison cache JSON."""
     from services.web_tools import check_and_increment_web_budget, get_turn_web_fetch_count
 
     cache_path = tmp_path / "pricing_cache.json"
     svc = PricingService(cache_file=cache_path)
 
     seen_counts: list[int] = []
-    empty_resp = MagicMock()
-    empty_resp.choices = []
+    tool_call = SimpleNamespace(
+        id="call_ws",
+        function=SimpleNamespace(name="web_search", arguments=json.dumps({"query": "probe pricing"})),
+    )
+    round_1 = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(role="assistant", content=None, tool_calls=[tool_call]))]
+    )
+    round_2 = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    role="assistant",
+                    content=json.dumps({"verified": False, "input_price_per_1m": None, "output_price_per_1m": None}),
+                    tool_calls=None,
+                )
+            )
+        ]
+    )
 
     async def fake_web_search(**kwargs):
         seen_counts.append(get_turn_web_fetch_count())
         check_and_increment_web_budget()
-        return ""
+        return json.dumps({"results": []})
 
     # Pre-exhaust turn web budget before warm_up_cache runs
     for _ in range(5):
@@ -487,13 +817,10 @@ async def test_warm_up_cache_resets_web_budget_and_skips_fallback_cache_write(tm
             break
 
     with (
-        patch("litellm.acompletion", new_callable=AsyncMock, return_value=empty_resp),
+        patch("litellm.acompletion", new_callable=AsyncMock, side_effect=[round_1, round_2, round_1, round_2]),
         patch("services.pricing_service.web_search", side_effect=fake_web_search),
     ):
         await svc.warm_up_cache(models=["unknown/probe-one", "unknown/probe-two"])
 
     assert seen_counts == [0, 0]
     assert not cache_path.exists()
-
-
-

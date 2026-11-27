@@ -39,6 +39,14 @@
       "icon_url": "avatars/image_98.png",
       "is_short_output": true,
       "skills": []
+    },
+    "PricingAgent": {
+      "username": "PricingAgent",
+      "model": "gemini/gemini-4-hydrogen",
+      "displayname": "Pricing Agent",
+      "icon_url": "avatars/image_98.png",
+      "is_short_output": true,
+      "skills": []
     }
   },
   "orchestrator": {

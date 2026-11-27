@@ -11,12 +11,24 @@ from typing import Any, Callable
 
 import litellm
 
-from core.config import get_orchestrator_fast_model, get_pricing_agent_prompt
+from core.config import (
+    get_orchestrator_fast_model,
+    get_pricing_agent_prompt,
+    get_system_agent_model,
+)
 from core.llm_utils import execute_llm_with_retry
-
-from .web_tools import fetch_web_page, web_search
-
 from core.paths import BASELINE_PRICES_FILE, PRICING_CACHE_FILE
+
+from .pricing_feeds import (
+    MAX_VALID_PRICE_PER_1M as MAX_VALID_PRICE_PER_1M,
+    MIN_VALID_PRICE_PER_1M as MIN_VALID_PRICE_PER_1M,
+    clear_feed_cache,
+    fetch_pricing_from_feeds,
+    is_valid_price_pair as _is_valid_price_pair,
+    is_within_sanity_bounds as _is_within_sanity_bounds,
+    normalize_model_name as _normalize_model_name,
+)
+from .web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +36,7 @@ logger = logging.getLogger(__name__)
 def get_pricing_cache_ttl_seconds() -> int:
     try:
         from config_store.system_settings import get_pricing_cache_ttl_seconds
+
         return get_pricing_cache_ttl_seconds()
     except Exception:  # noqa: BLE001
         return 7 * 24 * 3600
@@ -32,6 +45,7 @@ def get_pricing_cache_ttl_seconds() -> int:
 def get_pricing_benchmark_url() -> str:
     try:
         from config_store.system_settings import get_pricing_benchmark_url
+
         return get_pricing_benchmark_url()
     except Exception:  # noqa: BLE001
         return "https://artificialanalysis.ai/models"
@@ -39,6 +53,8 @@ def get_pricing_benchmark_url() -> str:
 
 # Cache TTL default in seconds
 CACHE_TTL_SECONDS = 7 * 24 * 3600
+MAX_PRICING_AGENT_TOOL_ROUNDS = 3
+POISONED_PRICING_SOURCES: frozenset[str] = frozenset({"Web Search Fallback"})
 
 # LiteLLM tool schemas for the pricing research agent
 PRICING_TOOL_SCHEMAS = [
@@ -78,8 +94,8 @@ PRICING_TOOL_SCHEMAS = [
                     },
                     "max_chars": {
                         "type": "integer",
-                        "description": "Maximum number of characters of text content to extract. Defaults to 4000.",
-                        "default": 4000,
+                        "description": "Maximum number of characters of text content to extract. Defaults to 12000.",
+                        "default": 12000,
                     },
                 },
                 "required": ["url"],
@@ -89,17 +105,10 @@ PRICING_TOOL_SCHEMAS = [
 ]
 
 
-def _normalize_model_name(model_name: str) -> str:
-    """Normalizes model string (e.g. 'gemini/gemini-4-hydrogen')."""
-    if not isinstance(model_name, str):
-        model_name = str(model_name) if model_name is not None else ""
-    return model_name.strip().lower()
-
-
 def load_baseline_pricing(config_path: Path | str | None = None) -> dict[str, dict[str, Any]]:
     """
     Loads baseline model pricing dictionary from JSON configuration file.
-    Defaults to data/baseline_prices.json with safe fallback.
+    Defaults to data/pricing/baseline_prices.json with safe fallback.
     """
     target = Path(config_path) if config_path else BASELINE_PRICES_FILE
     if target.exists():
@@ -111,46 +120,6 @@ def load_baseline_pricing(config_path: Path | str | None = None) -> dict[str, di
         except (OSError, json.JSONDecodeError, UnicodeError, ValueError) as e:
             logger.error(f"[PRICING] Error loading baseline prices from {target}: {e}")
     return {}
-
-
-MIN_VALID_PRICE_PER_1M: float = 0.005
-MAX_VALID_PRICE_PER_1M: float = 500.0
-
-
-def _is_valid_price_pair(in_price: Any, out_price: Any) -> bool:
-    """Validates that both input and output prices per 1M tokens fall within acceptable sanity bounds."""
-    try:
-        if in_price is None or out_price is None:
-            return False
-        inp = float(in_price)
-        outp = float(out_price)
-        return (
-            MIN_VALID_PRICE_PER_1M <= inp <= MAX_VALID_PRICE_PER_1M
-            and MIN_VALID_PRICE_PER_1M <= outp <= MAX_VALID_PRICE_PER_1M
-        )
-    except (TypeError, ValueError):
-        return False
-
-
-def _is_within_sanity_bounds(in_price: float, out_price: float, baseline: dict[str, Any]) -> bool:
-    """
-    Validates that candidate prices do not deviate wildly (< 10% or > 1000%)
-    from an established model baseline (from catalog or community registry).
-    """
-    try:
-        if baseline.get("source") == DEFAULT_FALLBACK_PRICING.get("source"):
-            return True
-        base_in = float(baseline.get("input_price_per_1m") or 0.0)
-        base_out = float(baseline.get("output_price_per_1m") or 0.0)
-        if base_in > 0:
-            if in_price < 0.1 * base_in or in_price > 10.0 * base_in:
-                return False
-        if base_out > 0:
-            if out_price < 0.1 * base_out or out_price > 10.0 * base_out:
-                return False
-        return True
-    except (TypeError, ValueError):
-        return False
 
 
 # Industry baseline fallback pricing (USD per 1,000,000 tokens) loaded from JSON config
@@ -166,88 +135,50 @@ DEFAULT_FALLBACK_PRICING: dict[str, Any] = {
 }
 
 
-def _extract_pricing_from_search_text(
-    text: str, model_name: str
-) -> tuple[float | None, float | None]:
+def _get_baseline_signature(model_name: str) -> str | None:
     """
-    Attempts to extract input and output token pricing per 1M tokens from web search snippets.
-    Supports both 'keyword before price' and 'price before keyword' conventions, as well as '$X / $Y per 1M'.
+    Returns a stable signature for a model's explicit entry in baseline_prices.json,
+    or None if the model is not directly listed in baseline_prices.json.
     """
-    input_price = None
-    output_price = None
+    norm = _normalize_model_name(model_name)
+    norm_bare = norm.rsplit("/", 1)[-1] if "/" in norm else norm
 
-    # Strategy 1: Combined slash format like "$0.15 / $0.60 per 1M" or "$2.00 / $6.00 per million"
-    slash_match = re.search(
-        r"\$\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*\$\s*([0-9]+(?:\.[0-9]+)?)\s*(?:(?:/|per)\s*(?:1m|1\s*million|m|million|1000k))?",
-        text,
-        re.IGNORECASE,
-    )
-    if slash_match:
-        try:
-            v_in = float(slash_match.group(1))
-            v_out = float(slash_match.group(2))
-            if _is_valid_price_pair(v_in, v_out):
-                return v_in, v_out
-        except (ValueError, IndexError):
-            pass
+    matched: dict[str, Any] | None = None
+    if norm in BASELINE_MODEL_PRICING:
+        matched = BASELINE_MODEL_PRICING[norm]
+    else:
+        for key, p in BASELINE_MODEL_PRICING.items():
+            key_bare = key.rsplit("/", 1)[-1] if "/" in key else key
+            if key_bare == norm_bare:
+                matched = p
+                break
 
-    # Strategy 2: Keyword immediately before price (e.g. "Input: $2.00 / 1M", "Prompt tokens: $0.15/M")
-    in_after_kw = re.search(
-        r"(?:input|prompt)(?:\s+tokens?)?[:\s\-\–]{1,15}\$\s*([0-9]+(?:\.[0-9]+)?)",
-        text,
-        re.IGNORECASE,
-    )
-    if in_after_kw:
-        try:
-            val = float(in_after_kw.group(1))
-            if MIN_VALID_PRICE_PER_1M <= val <= MAX_VALID_PRICE_PER_1M:
-                input_price = val
-        except (ValueError, IndexError):
-            pass
+    if not isinstance(matched, dict):
+        return None
+    in_p = matched.get("input_price_per_1m")
+    out_p = matched.get("output_price_per_1m")
+    if not _is_valid_price_pair(in_p, out_p):
+        return None
+    return f"{float(in_p):.6f}:{float(out_p):.6f}"
 
-    out_after_kw = re.search(
-        r"(?:output|completion)(?:\s+tokens?)?[:\s\-\–]{1,15}\$\s*([0-9]+(?:\.[0-9]+)?)",
-        text,
-        re.IGNORECASE,
-    )
-    if out_after_kw:
-        try:
-            val = float(out_after_kw.group(1))
-            if MIN_VALID_PRICE_PER_1M <= val <= MAX_VALID_PRICE_PER_1M:
-                output_price = val
-        except (ValueError, IndexError):
-            pass
 
-    # Strategy 3: Price immediately before keyword (e.g. "$0.15 per 1M input" / "$0.60 per 1M output tokens")
-    if input_price is None:
-        in_before_kw = re.search(
-            r"\$\s*([0-9]+(?:\.[0-9]+)?)\s*(?:(?:/|per)\s*(?:1m|1\s*million|m|million|1000k))?\s*(?:for\s+)?(?:input|prompt)\b",
-            text,
-            re.IGNORECASE,
-        )
-        if in_before_kw:
-            try:
-                val = float(in_before_kw.group(1))
-                if MIN_VALID_PRICE_PER_1M <= val <= MAX_VALID_PRICE_PER_1M:
-                    input_price = val
-            except (ValueError, IndexError):
-                pass
-
-    if output_price is None:
-        out_before_kw = re.search(
-            r"\$\s*([0-9]+(?:\.[0-9]+)?)\s*(?:(?:/|per)\s*(?:1m|1\s*million|m|million|1000k))?\s*(?:for\s+)?(?:output|completion)\b",
-            text,
-            re.IGNORECASE,
-        )
-        if out_before_kw:
-            try:
-                val = float(out_before_kw.group(1))
-                if MIN_VALID_PRICE_PER_1M <= val <= MAX_VALID_PRICE_PER_1M:
-                    output_price = val
-            except (ValueError, IndexError):
-                pass
-
-    return input_price, output_price
+def _is_cache_entry_valid(model_name: str, entry: Any) -> bool:
+    """
+    Validates that a cached pricing entry is well-formed, not produced by the legacy
+    blind regex fallback, and not invalidated by a newer baseline_prices.json entry.
+    """
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("source") in POISONED_PRICING_SOURCES:
+        return False
+    if not _is_valid_price_pair(entry.get("input_price_per_1m"), entry.get("output_price_per_1m")):
+        return False
+    cached_sig = entry.get("baseline_signature")
+    if cached_sig is not None:
+        current_sig = _get_baseline_signature(model_name)
+        if current_sig is not None and str(cached_sig) != current_sig:
+            return False
+    return True
 
 
 def get_baseline_for_model(
@@ -257,10 +188,10 @@ def get_baseline_for_model(
     """
     Returns baseline fallback pricing for a given model identifier.
     Priority order:
-    1. Exact or bare-model exact match in data/baseline_prices.json (validated)
+    1. Exact or bare-model exact match in data/pricing/baseline_prices.json (validated)
     2. litellm.model_cost community registry (exact / normalized / bare)
-    3. Longest-prefix key-in-norm match in data/baseline_prices.json (validated)
-    4. Fallback norm-in-key match in data/baseline_prices.json (validated)
+    3. Longest-prefix key-in-norm match in data/pricing/baseline_prices.json (validated)
+    4. Fallback norm-in-key match in data/pricing/baseline_prices.json (validated)
     5. DEFAULT_FALLBACK_PRICING ($15.00/$75.00 per 1M)
     """
     norm = _normalize_model_name(model_name)
@@ -317,9 +248,8 @@ def get_baseline_for_model(
     return dict(DEFAULT_FALLBACK_PRICING)
 
 
-
 class PricingService:
-    """Encapsulates pricing cache, live web research agent, and cost calculation per model."""
+    """Encapsulates pricing cache, structured feeds, live web research agent, and cost lookup per model."""
 
     def __init__(self, cache_file: Path | None = None):
         self._custom_cache_file: bool = cache_file is not None
@@ -355,6 +285,7 @@ class PricingService:
         """Resets configured paths back to canonical baseline cache."""
         self._custom_cache_file = False
         from core.paths import PRICING_CACHE_FILE
+
         self.default_cache_file = PRICING_CACHE_FILE
         self._mem_cache = None
         self._mem_cache_key = None
@@ -364,6 +295,7 @@ class PricingService:
         if self._custom_cache_file:
             return self.default_cache_file
         from core.paths import get_pricing_cache_file
+
         return get_pricing_cache_file()
 
     def load_cache(
@@ -413,11 +345,41 @@ class PricingService:
             os.replace(tmp_path, target)
             self._mem_cache = data
             self._mem_cache_key = (str(target), target.stat().st_mtime)
-            logger.info(
-                f"[PRICING] Successfully saved pricing cache to {target.name}"
-            )
+            logger.info(f"[PRICING] Successfully saved pricing cache to {target.name}")
         except (OSError, TypeError, ValueError) as e:
             logger.error(f"[PRICING] Error saving pricing cache: {e}")
+
+    def prune_cache(self, valid_models: set[str] | None = None) -> int:
+        """
+        Removes poisoned, malformed, baseline-stale, or retired model entries from cache.
+        Returns the number of pruned entries.
+        """
+        cache = self.load_cache()
+        if not cache:
+            return 0
+
+        normalized_valid = (
+            {_normalize_model_name(m) for m in valid_models if str(m).strip()}
+            if valid_models is not None
+            else None
+        )
+
+        pruned: dict[str, dict[str, Any]] = {}
+        removed = 0
+        for key, entry in cache.items():
+            norm_key = _normalize_model_name(key)
+            if not _is_cache_entry_valid(norm_key, entry):
+                removed += 1
+                continue
+            if normalized_valid is not None and norm_key not in normalized_valid:
+                removed += 1
+                continue
+            pruned[key] = entry
+
+        if removed > 0:
+            self.save_cache(pruned)
+            logger.info(f"[PRICING] Pruned {removed} stale/invalid entries from pricing cache.")
+        return removed
 
     def get_pricing(self, model_name: str) -> dict[str, Any]:
         """
@@ -427,29 +389,54 @@ class PricingService:
         cache = self.load_cache()
         norm = _normalize_model_name(model_name)
         baseline = get_baseline_for_model(model_name)
-        if norm in cache:
+        if norm in cache and _is_cache_entry_valid(norm, cache[norm]):
             res = dict(cache[norm])
             if not res.get("source_url"):
-                res["source_url"] = baseline.get(
-                    "source_url", get_pricing_benchmark_url()
-                )
+                res["source_url"] = baseline.get("source_url", get_pricing_benchmark_url())
             return copy.deepcopy(res)
         res = dict(baseline)
         res["updated_at"] = 0
         return copy.deepcopy(res)
 
     async def fetch_pricing_with_agent(self, model_name: str) -> dict[str, Any]:
-        """Researches pricing for a given model using LiteLLM agent with tool calls."""
+        """Researches pricing for a given model using a bounded multi-turn LiteLLM agent with tool calls."""
         logger.info(f"[PRICING] Researching current live pricing for '{model_name}' via agent...")
         baseline = get_baseline_for_model(model_name)
 
         from core.model_catalog import resolve_model_with_fallback
 
+        configured_model = get_system_agent_model(
+            "PricingAgent", fallback=get_orchestrator_fast_model()
+        )
         active_model = resolve_model_with_fallback(
-            get_orchestrator_fast_model(), log_context="PRICING"
+            configured_model, log_context="PRICING"
         ).model
 
-        messages = [
+        def _fallback_payload() -> dict[str, Any]:
+            now = time.time()
+            return {
+                **baseline,
+                "is_fallback": True,
+                "updated_at": now,
+                "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(now)),
+            }
+
+        def _record_spend(resp_obj: Any) -> None:
+            try:
+                from pipeline.spend_governance import spend_governance
+
+                usage = getattr(resp_obj, "usage", None)
+                if usage:
+                    spend_governance.record_usage(
+                        session_id=f"system:pricing:{model_name}",
+                        model_name=active_model,
+                        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+                        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[PRICING] Failed to record spend ledger: {e}")
+
+        messages: list[dict[str, Any]] = [
             {"role": "system", "content": get_pricing_agent_prompt()},
             {
                 "role": "user",
@@ -457,77 +444,81 @@ class PricingService:
             },
         ]
 
-        resp = await execute_llm_with_retry(
-            func=litellm.acompletion,
-            kwargs={
-                "model": active_model,
-                "messages": messages,
-                "tools": PRICING_TOOL_SCHEMAS,
-                "tool_choice": "auto",
-            },
-            agent_key="pricing_agent",
-            thread_key=("system", f"pricing_{model_name}"),
-            max_attempts=2,
-        )
-        if not resp or not getattr(resp, "choices", None):
-            return {
-                **baseline,
-                "is_fallback": True,
-                "updated_at": time.time(),
-                "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-            }
+        executed_any_tool = False
+        final_text: str | None = None
 
-        try:
-            from pipeline.spend_governance import spend_governance
+        for _round in range(MAX_PRICING_AGENT_TOOL_ROUNDS):
+            resp = await execute_llm_with_retry(
+                func=litellm.acompletion,
+                kwargs={
+                    "model": active_model,
+                    "messages": messages,
+                    "tools": PRICING_TOOL_SCHEMAS,
+                    "tool_choice": "auto",
+                },
+                agent_key="pricing_agent",
+                thread_key=("system", f"pricing_{model_name}"),
+                max_attempts=2,
+            )
+            if not resp or not getattr(resp, "choices", None):
+                return _fallback_payload()
 
-            usage = getattr(resp, "usage", None)
-            if usage:
-                spend_governance.record_usage(
-                    session_id=f"system:pricing:{model_name}",
-                    model_name=active_model,
-                    prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
-                    completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
-                )
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[PRICING] Failed to record spend ledger: {e}")
+            _record_spend(resp)
+            resp_msg = resp.choices[0].message
+            tool_calls = getattr(resp_msg, "tool_calls", None)
 
-        resp_msg = resp.choices[0].message
-        tool_calls = getattr(resp_msg, "tool_calls", None)
-
-        if tool_calls:
-            if hasattr(resp_msg, "model_dump"):
-                messages.append(resp_msg.model_dump())
-            else:
-                messages.append(
-                    {
-                        "role": getattr(resp_msg, "role", "assistant"),
-                        "content": getattr(resp_msg, "content", None),
-                        "tool_calls": getattr(resp_msg, "tool_calls", None),
-                    }
-                )
-
-            for tc in tool_calls:
-                fn_name = tc.function.name
-                fn_args = (
-                    json.loads(tc.function.arguments)
-                    if isinstance(tc.function.arguments, str)
-                    else tc.function.arguments
-                )
-                if fn_name == "web_search":
-                    res_str = await web_search(**fn_args)
-                elif fn_name == "fetch_web_page":
-                    res_str = await fetch_web_page(**fn_args)
+            if tool_calls:
+                if hasattr(resp_msg, "model_dump"):
+                    messages.append(resp_msg.model_dump())
                 else:
-                    res_str = f"Error: unknown tool '{fn_name}'"
+                    messages.append(
+                        {
+                            "role": getattr(resp_msg, "role", "assistant"),
+                            "content": getattr(resp_msg, "content", None),
+                            "tool_calls": getattr(resp_msg, "tool_calls", None),
+                        }
+                    )
 
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "name": fn_name,
-                        "content": res_str,
-                    }
-                )
+                for tc in tool_calls:
+                    fn_name = tc.function.name
+                    raw_args = tc.function.arguments
+                    if isinstance(raw_args, str):
+                        try:
+                            fn_args = json.loads(raw_args)
+                        except json.JSONDecodeError:
+                            fn_args = {}
+                    else:
+                        fn_args = raw_args if isinstance(raw_args, dict) else {}
+
+                    if fn_name == "web_search":
+                        res_str = await web_search(**fn_args)
+                    elif fn_name == "fetch_web_page":
+                        call_args = dict(fn_args)
+                        call_args.setdefault("max_chars", 12000)
+                        res_str = await fetch_web_page(**call_args)
+                    else:
+                        res_str = f"Error: unknown tool '{fn_name}'"
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "name": fn_name,
+                            "content": res_str,
+                        }
+                    )
+                executed_any_tool = True
+                continue
+
+            if not executed_any_tool:
+                return _fallback_payload()
+
+            final_text = getattr(resp_msg, "content", None) or ""
+            break
+
+        if final_text is None:
+            if not executed_any_tool:
+                return _fallback_payload()
 
             final_resp = await execute_llm_with_retry(
                 func=litellm.acompletion,
@@ -541,149 +532,104 @@ class PricingService:
                 max_attempts=2,
             )
             if not final_resp or not getattr(final_resp, "choices", None):
-                return {
-                    **baseline,
-                    "is_fallback": True,
-                    "updated_at": time.time(),
-                    "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-                }
+                return _fallback_payload()
+            _record_spend(final_resp)
+            final_text = getattr(final_resp.choices[0].message, "content", None) or ""
 
-            try:
-                from pipeline.spend_governance import spend_governance
+        cleaned = re.sub(r"^```json\s*", "", final_text.strip(), flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned.strip())
+        data = json.loads(cleaned)
+        if not isinstance(data, dict) or data.get("verified") is False:
+            return _fallback_payload()
 
-                usage_final = getattr(final_resp, "usage", None)
-                if usage_final:
-                    spend_governance.record_usage(
-                        session_id=f"system:pricing:{model_name}",
-                        model_name=active_model,
-                        prompt_tokens=getattr(usage_final, "prompt_tokens", 0) or 0,
-                        completion_tokens=getattr(usage_final, "completion_tokens", 0) or 0,
-                    )
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[PRICING] Failed to record spend ledger: {e}")
+        raw_in = data.get("input_price_per_1m")
+        raw_out = data.get("output_price_per_1m")
+        if not _is_valid_price_pair(raw_in, raw_out):
+            return _fallback_payload()
 
-            final_text = final_resp.choices[0].message.content
+        in_price = float(raw_in)
+        out_price = float(raw_out)
+        if not _is_within_sanity_bounds(in_price, out_price, baseline):
+            logger.warning(
+                f"[PRICING] Agent returned out-of-bounds pricing for '{model_name}': "
+                f"in={in_price}, out={out_price}. Falling back to baseline without caching."
+            )
+            return _fallback_payload()
 
-            cleaned = re.sub(r"^```json\s*", "", final_text.strip(), flags=re.IGNORECASE)
-            cleaned = re.sub(r"\s*```$", "", cleaned.strip())
-            data = json.loads(cleaned)
-
-            in_price = float(data.get("input_price_per_1m", baseline["input_price_per_1m"]))
-            out_price = float(data.get("output_price_per_1m", baseline["output_price_per_1m"]))
-            if not _is_valid_price_pair(in_price, out_price) or not _is_within_sanity_bounds(in_price, out_price, baseline):
-                logger.warning(
-                    f"[PRICING] Agent returned out-of-bounds pricing for '{model_name}': "
-                    f"in={in_price}, out={out_price}. Falling back to baseline."
-                )
-                in_price = float(baseline["input_price_per_1m"])
-                out_price = float(baseline["output_price_per_1m"])
-
-            source_url = data.get("source_url") or baseline.get("source_url", get_pricing_benchmark_url())
-
-            return {
-                "input_price_per_1m": in_price,
-                "output_price_per_1m": out_price,
-                "currency": "USD",
-                "source": data.get("source", baseline["source"]),
-                "source_url": source_url,
-                "updated_at": time.time(),
-                "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-            }
-
-
-        # If no tool calls, return baseline
+        source_url = data.get("source_url") or baseline.get("source_url", get_pricing_benchmark_url())
+        now = time.time()
         return {
-            **baseline,
-            "is_fallback": True,
-            "updated_at": time.time(),
-            "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            "input_price_per_1m": in_price,
+            "output_price_per_1m": out_price,
+            "currency": "USD",
+            "source": data.get("source", baseline["source"]),
+            "source_url": source_url,
+            "updated_at": now,
+            "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(now)),
         }
 
     async def fetch_pricing_from_web(
         self,
         model_name: str,
+        *,
+        feed_fetcher: Any = None,
         agent_fetcher: Any = None,
-        search_fn: Any = None,
     ) -> dict[str, Any]:
-        """Researches pricing for a given model via agent with fallback to direct search."""
+        """
+        Researches pricing for a given model:
+        1. Structured machine-readable JSON pricing feeds (LiteLLM Live JSON / OpenRouter Models API).
+        2. Multi-turn PricingAgent research using web_search + fetch_web_page.
+        3. Clean baseline fallback (flagged is_fallback=True so it is never persisted over baseline).
+        """
         baseline = get_baseline_for_model(model_name)
+
+        # Stage 1: Structured JSON feeds
+        try:
+            if feed_fetcher is not None:
+                call_res = feed_fetcher(model_name)
+            else:
+                call_res = fetch_pricing_from_feeds(model_name, baseline=baseline)
+            feed_res = await call_res if asyncio.iscoroutine(call_res) else call_res
+            if (
+                isinstance(feed_res, dict)
+                and not feed_res.get("is_fallback")
+                and _is_valid_price_pair(
+                    feed_res.get("input_price_per_1m"),
+                    feed_res.get("output_price_per_1m"),
+                )
+                and _is_within_sanity_bounds(
+                    float(feed_res["input_price_per_1m"]),
+                    float(feed_res["output_price_per_1m"]),
+                    baseline,
+                )
+            ):
+                return feed_res
+        except Exception as e:  # noqa: BLE001 - Feed lookup failure falls back to agent research
+            logger.warning(f"[PRICING] Structured feed lookup failed for '{model_name}': {e}")
+
+        # Stage 2: Multi-turn PricingAgent research
         try:
             if agent_fetcher is not None:
                 call_res = agent_fetcher(model_name)
             else:
                 call_res = self.fetch_pricing_with_agent(model_name)
             agent_res = await call_res if asyncio.iscoroutine(call_res) else call_res
-            if agent_fetcher is None and isinstance(agent_res, dict) and agent_res.get("is_fallback"):
-                logger.info(
-                    f"[PRICING] Agent research returned baseline fallback for '{model_name}'. Trying direct search."
-                )
-            else:
+            if isinstance(agent_res, dict) and not agent_res.get("is_fallback"):
                 return agent_res
         except (TimeoutError, asyncio.TimeoutError) as e:
-            logger.warning(f"[PRICING] Agent research timed out for '{model_name}': {e}. Trying direct search.")
-        except (KeyError, ValueError, TypeError) as e:
-            logger.warning(f"[PRICING] Agent research format error for '{model_name}': {e}. Trying direct search.")
-        except Exception as e:  # noqa: BLE001 - Pricing research error boundary falls back to direct search
-            logger.warning(f"[PRICING] Agent research failed for '{model_name}': {e}. Trying direct search.")
+            logger.warning(f"[PRICING] Agent research timed out for '{model_name}': {e}. Using baseline.")
+        except (KeyError, ValueError, TypeError, json.JSONDecodeError) as e:
+            logger.warning(f"[PRICING] Agent research format error for '{model_name}': {e}. Using baseline.")
+        except Exception as e:  # noqa: BLE001 - Pricing research error boundary falls back to baseline
+            logger.warning(f"[PRICING] Agent research failed for '{model_name}': {e}. Using baseline.")
 
-        # Fallback to direct web search extraction
-        try:
-            clean_query = re.sub(r"^[a-zA-Z0-9_-]+/", "", model_name)
-            if search_fn is not None:
-                call_res = search_fn(query=f"{clean_query} api pricing tokens million official", max_results=5)
-                search_raw = await call_res if asyncio.iscoroutine(call_res) else call_res
-            else:
-                search_raw = await web_search(query=f"{clean_query} api pricing tokens million official", max_results=5)
-            in_val, out_val = _extract_pricing_from_search_text(search_raw, model_name)
-            cand_in = in_val if in_val is not None else float(baseline["input_price_per_1m"])
-            cand_out = out_val if out_val is not None else float(baseline["output_price_per_1m"])
-
-            if (in_val is not None or out_val is not None) and _is_valid_price_pair(cand_in, cand_out) and _is_within_sanity_bounds(cand_in, cand_out, baseline):
-                input_price = cand_in
-                output_price = cand_out
-                source = "Web Search Fallback"
-                used_fallback = False
-            else:
-                if in_val is not None or out_val is not None:
-                    logger.warning(
-                        f"[PRICING] Direct search extracted out-of-bounds pricing for '{model_name}': "
-                        f"in={cand_in}, out={cand_out}. Falling back to baseline."
-                    )
-                input_price = float(baseline["input_price_per_1m"])
-                output_price = float(baseline["output_price_per_1m"])
-                source = baseline["source"]
-                used_fallback = True
-
-            source_url = baseline.get("source_url", get_pricing_benchmark_url())
-
-            url_match = re.search(r"https?://[^\s)\]\"'>]+", search_raw)
-            if url_match and source == "Web Search Fallback":
-                source_url = url_match.group(0)
-
-            res_payload: dict[str, Any] = {
-                "input_price_per_1m": float(input_price),
-                "output_price_per_1m": float(output_price),
-                "currency": "USD",
-                "source": source,
-                "source_url": source_url,
-                "updated_at": time.time(),
-                "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-            }
-            if used_fallback:
-                res_payload["is_fallback"] = True
-            return res_payload
-        except (TimeoutError, asyncio.TimeoutError) as e:
-            logger.warning(f"[PRICING] Direct search timed out for '{model_name}': {e}. Using baseline.")
-        except (ValueError, TypeError, KeyError) as e:
-            logger.warning(f"[PRICING] Direct search parsing error for '{model_name}': {e}. Using baseline.")
-        except Exception as e:  # noqa: BLE001 - Pricing direct search error boundary falls back to baseline pricing
-            logger.warning(f"[PRICING] Direct search failed for '{model_name}': {e}. Using baseline.")
-
+        # Stage 3: Clean baseline fallback (never persisted to cache)
+        now = time.time()
         return {
             **baseline,
             "is_fallback": True,
-            "updated_at": time.time(),
-            "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            "updated_at": now,
+            "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(now)),
         }
 
     async def refresh_pricing(
@@ -694,9 +640,9 @@ class PricingService:
     ) -> dict[str, Any]:
         """
         Returns pricing dictionary for a given model with 7-day TTL check.
-        Performs web search only if stale or missing, governed by weekly_pricing_update_enabled setting.
-        If weekly update is OFF, models with existing pricing are not updated, but models without set
-        pricing will still fetch pricing.
+        Performs live lookup only if stale, invalid, or missing, governed by weekly_pricing_update_enabled.
+        If weekly update is OFF, models with valid cached pricing are not updated, while models without
+        valid pricing still fetch pricing.
         """
         async with self.refresh_lock:
             cache = self.load_cache()
@@ -704,43 +650,32 @@ class PricingService:
             now = time.time()
 
             from config_store.app_settings import is_weekly_pricing_update_enabled
+
             weekly_update_enabled = is_weekly_pricing_update_enabled()
 
             cached_entry = cache.get(norm)
-            has_price = (
-                cached_entry is not None
-                and cached_entry.get("input_price_per_1m") is not None
-                and cached_entry.get("output_price_per_1m") is not None
-            )
+            entry_valid = _is_cache_entry_valid(norm, cached_entry)
 
-            if cached_entry and not force:
+            if cached_entry and not force and entry_valid:
                 updated_at = cached_entry.get("updated_at", 0)
                 age = now - updated_at
 
-                # If weekly updates are turned OFF and pricing is already set for this model,
-                # do not update and return cached pricing.
-                if not weekly_update_enabled and has_price:
-                    logger.debug(
-                        f"[PRICING] Weekly updates disabled; using existing price for '{norm}'"
-                    )
+                if not weekly_update_enabled:
+                    logger.debug(f"[PRICING] Weekly updates disabled; using existing price for '{norm}'")
                     if not cached_entry.get("source_url"):
                         baseline = get_baseline_for_model(model_name)
-                        cached_entry["source_url"] = baseline.get(
-                            "source_url", get_pricing_benchmark_url()
-                        )
+                        cached_entry["source_url"] = baseline.get("source_url", get_pricing_benchmark_url())
                     return copy.deepcopy(cached_entry)
 
-                # If weekly updates are turned ON, enforce the dynamic TTL check
                 effective_ttl = get_pricing_cache_ttl_seconds()
-                if weekly_update_enabled and has_price and age < effective_ttl:
+                if age < effective_ttl:
                     logger.debug(
-                        f"[PRICING] Using cached pricing for '{norm}' (age: {age / 86400:.1f} days / {effective_ttl / 86400:.1f}-day TTL)"
+                        f"[PRICING] Using cached pricing for '{norm}' "
+                        f"(age: {age / 86400:.1f} days / {effective_ttl / 86400:.1f}-day TTL)"
                     )
                     if not cached_entry.get("source_url"):
                         baseline = get_baseline_for_model(model_name)
-                        cached_entry["source_url"] = baseline.get(
-                            "source_url", get_pricing_benchmark_url()
-                        )
+                        cached_entry["source_url"] = baseline.get("source_url", get_pricing_benchmark_url())
                     return copy.deepcopy(cached_entry)
 
             if web_fetcher is not None:
@@ -760,6 +695,10 @@ class PricingService:
                 if isinstance(fresh_pricing, dict)
                 else fresh_pricing
             )
+            if isinstance(to_cache, dict):
+                sig = _get_baseline_signature(norm)
+                if sig is not None:
+                    to_cache["baseline_signature"] = sig
             cache[norm] = to_cache
             self.save_cache(cache)
             return copy.deepcopy(to_cache)
@@ -767,12 +706,13 @@ class PricingService:
     async def warm_up_cache(self, models: list[str] | None = None) -> None:
         """Warms up pricing cache at server startup for all known models."""
         if models is None:
+            from config_store.agent_settings import get_agents_config
             from core.config import (
                 SYSTEM_AGENTS_CONFIG,
                 get_orchestrator_reasoning_model,
                 get_system_agent_model,
             )
-            from config_store.agent_settings import get_agents_config
+            from core.model_catalog import load_provider_catalog
 
             models_to_check = {cfg["model"] for cfg in get_agents_config().values() if "model" in cfg}
             models_to_check.update(
@@ -786,24 +726,35 @@ class PricingService:
             reasoning_m = get_orchestrator_reasoning_model()
             if reasoning_m:
                 models_to_check.add(reasoning_m)
+
+            known_models: set[str] = {_normalize_model_name(m) for m in models_to_check if m}
+            known_models.update(BASELINE_MODEL_PRICING.keys())
+            catalog = load_provider_catalog()
+            for cfg in catalog.values():
+                if isinstance(cfg, dict):
+                    for cat_model in cfg.get("models", []):
+                        if isinstance(cat_model, str) and cat_model.strip():
+                            known_models.add(_normalize_model_name(cat_model))
+            self.prune_cache(valid_models=known_models)
         else:
             models_to_check = set(models)
 
-        logger.info(
-            f"[PRICING] Warming up pricing cache for {len(models_to_check)} models..."
-        )
+        logger.info(f"[PRICING] Warming up pricing cache for {len(models_to_check)} models...")
         from services.web_tools import reset_turn_web_budget
 
-        for m in models_to_check:
-            reset_turn_web_budget()
-            try:
-                await self.refresh_pricing(m, force=False)
-            except (TimeoutError, asyncio.TimeoutError) as e:
-                logger.warning(f"[PRICING] Warm-up timed out for model '{m}': {e}")
-            except (OSError, ValueError, KeyError) as e:
-                logger.warning(f"[PRICING] Warm-up error for model '{m}': {e}")
-            except Exception as e:  # noqa: BLE001 - Pricing warmup error boundary isolates individual model failure
-                logger.warning(f"[PRICING] Warm-up failed for model '{m}': {e}")
+        try:
+            for m in models_to_check:
+                reset_turn_web_budget()
+                try:
+                    await self.refresh_pricing(m, force=False)
+                except (TimeoutError, asyncio.TimeoutError) as e:
+                    logger.warning(f"[PRICING] Warm-up timed out for model '{m}': {e}")
+                except (OSError, ValueError, KeyError) as e:
+                    logger.warning(f"[PRICING] Warm-up error for model '{m}': {e}")
+                except Exception as e:  # noqa: BLE001 - Pricing warmup error boundary isolates individual model failure
+                    logger.warning(f"[PRICING] Warm-up failed for model '{m}': {e}")
+        finally:
+            clear_feed_cache()
 
 
 # Default singleton instance

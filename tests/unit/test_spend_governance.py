@@ -85,7 +85,7 @@ async def test_embeddings_records_usage_to_spend_governance():
 
 @pytest.mark.anyio
 async def test_pricing_service_records_spend_to_spend_governance():
-    from core.config import get_orchestrator_fast_model
+    from core.config import get_orchestrator_fast_model, get_system_agent_model
     from services.pricing_service import PricingService
 
     mock_resp = MagicMock()
@@ -96,7 +96,7 @@ async def test_pricing_service_records_spend_to_spend_governance():
     mock_resp.usage = MagicMock(prompt_tokens=120, completion_tokens=40)
 
     pricing_svc = PricingService()
-    expected_model = get_orchestrator_fast_model()
+    expected_model = get_system_agent_model("PricingAgent", fallback=get_orchestrator_fast_model())
     with patch(
         "services.pricing_service.execute_llm_with_retry",
         AsyncMock(return_value=mock_resp),

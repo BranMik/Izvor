@@ -699,6 +699,11 @@ def reset_router_and_llm_di_for_tests():
     )
     from core.model_catalog import configure_env_provider, reset_env_provider
     from core.slack_security import reset_auth_failure_tracker
+    from services.pricing_feeds import (
+        clear_feed_cache,
+        configure_feed_fetcher,
+        reset_feed_fetcher,
+    )
     from services.rate_limiter import ip_rate_limiter
     from services.readiness import reset_readiness_state
     from services.slack.client_core import (
@@ -708,9 +713,14 @@ def reset_router_and_llm_di_for_tests():
     )
     from services.telemetry import reset_telemetry_state
 
+    async def _noop_feed_fetcher(_url: str):
+        return None
+
     # Isolate model catalog key checks from developer .env during unit/integration tests;
     # tests verifying missing-key fallback explicitly inject their own env via configure_env_provider().
     configure_env_provider(lambda: {})
+    clear_feed_cache()
+    configure_feed_fetcher(_noop_feed_fetcher)
 
     # Hard-isolate Slack credentials, async client, caches, and report timezone for every test
     configure_token("")
@@ -737,6 +747,8 @@ def reset_router_and_llm_di_for_tests():
     reset_llm_completion_fn()
     reset_llm_sleep_fn()
     reset_env_provider()
+    reset_feed_fetcher()
+    clear_feed_cache()
     ip_rate_limiter.reset()
 
     if "adapters.slack.events" in sys.modules:
